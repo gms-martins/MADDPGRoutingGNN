@@ -1,0 +1,4 @@
+# Ignorar pastas inteiras
+/__pycache__
+/agent_files
+/results
