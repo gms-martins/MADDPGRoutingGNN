@@ -780,6 +780,7 @@ def generate_traffic_sequence(network=None):
     generate_traffic_matrix_file = False
 
     if generate_traffic_matrix_file:
+        # Gera e salva novas matrizes de tráfego
         for j in range(500):
             for host in hosts:
                 #print("\n host: ", host)
@@ -795,6 +796,7 @@ def generate_traffic_sequence(network=None):
             communications = {}
         json.dump(list_all_communications, open("TrafficMatrix/tms_internet_test.json", "w"), indent=4)
     else:
+        # Usa matrizes existentes carregadas de arquivos JSON
         for host in hosts:
             bws[host] = random.randint(20, 50)
             for i in range(30):

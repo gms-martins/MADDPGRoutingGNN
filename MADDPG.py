@@ -190,7 +190,10 @@ if __name__ == '__main__':
         if TRAIN:
             learning = "eval_train" # Cenário 4
         else:
-            learning = "eval" # Cenários 2 e 3
+            if UPDATE_WEIGHTS:
+                learning = "eval" # Cenários 2 
+            else:
+                learning = "eval_update" # Cenário 3
     else:
         learning = "train" # Cenário 1
 
@@ -429,8 +432,17 @@ if __name__ == '__main__':
 
         #saving data while training in data file, so data can be accessed while training
         if (not EVALUATE or (EVALUATE and TRAIN) )and (epoch+1)%20 == 0:
-            x = np.arange(0, NR_EPOCHS)
-            np.savetxt(f"{folder_path}/data_while_training.csv", (x, y_axis_training), delimiter=',')
+
+            training_data = pd.DataFrame({
+                'Epoch': np.arange(0, NR_EPOCHS),
+                'Average_Reward': [f"{value:.3f}" for value in y_axis_training],
+            })
+            #x = np.arange(0, NR_EPOCHS)
+            # np.savetxt(f"{folder_path}/data_while_training.csv", (x, y_axis_training), delimiter=',')
+            # Salvar em CSV com formato mais legível
+            training_data.to_csv(f"{folder_path}/data_while_training.csv", index=False, sep=';', decimal='.')
+
+        
 
         #print(total_epoch_pck_loss)
 
@@ -474,12 +486,26 @@ if __name__ == '__main__':
         plt.xlabel("Epochs")
         plt.ylabel("Reward")
 
-        plt.plot(graph_x_axis, y_axis_training, label = {NEURAL_NETWORK})
+        plt.plot(x, y_axis_training, label = {NEURAL_NETWORK})
         plt.legend()
         
 
         plt.savefig(f"{folder_path}/{sub_path}.png")
-        np.savetxt(f"{folder_path}/data.csv", (graph_x_axis, graph_y_axis), delimiter=',')
-        np.savetxt(f"{folder_path}/data_total.csv", (x, y_axis_training), delimiter=',')
+
+        data_df = pd.DataFrame({
+            #'Epoch': x,
+            #'Reward': graph_y_axis
+        })
+        data_df.to_csv(f"{folder_path}/data.csv", index=False,sep=';', decimal='.')
+
+        data_total_df = pd.DataFrame({
+            'Epoch': x,
+            'Average_Reward': [f"{value:.3f}" for value in y_axis_training]
+        })
+        data_total_df.to_csv(f"{folder_path}/data_total.csv", index=False,sep=';', decimal='.')
+
+        #Fnp.savetxt(f"{folder_path}/data.csv", (graph_x_axis, graph_y_axis), delimiter=',')
+        #np.savetxt(f"{folder_path}/data_total.csv", (x, y_axis_training), delimiter=',')
         plt.show()
 
+    

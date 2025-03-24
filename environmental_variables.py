@@ -1,8 +1,8 @@
 NR_ACTIVE_CONNECTIONS = 10 # C: Número máximo de conexões ativas
 NUMBER_OF_PATHS = 3   # Número de ações possíveis por destino k
 
-NR_EPOCHS = 1    #epoch
-EPOCH_SIZE = 1    #episode
+NR_EPOCHS = 30   #epoch
+EPOCH_SIZE = 20    #episode
 
 NOTES = "" #notes to add to text file
 
