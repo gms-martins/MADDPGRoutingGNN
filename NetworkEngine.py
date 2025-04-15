@@ -9,11 +9,16 @@ from matplotlib import pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from torch_geometric.data import Data
 import torch as T
+import sys
+import time
+import os
 
 from Link import Link
 from NetworkComponent import NetworkComponent
-from environmental_variables import EPOCH_SIZE, STATE_SIZE, NR_MAX_LINKS, EVALUATE, MODIFIED_NETWORK, NUMBER_OF_PATHS, TOPOLOGY_TYPE, TRAIN , PATH_SIMULATION
+from environmental_variables import EPOCH_SIZE, STATE_SIZE, NR_MAX_LINKS, EVALUATE,UPDATE_WEIGHTS, MODIFIED_NETWORK, NUMBER_OF_PATHS, TOPOLOGY_TYPE, TRAIN , PATH_SIMULATION, MAX_BANDWIDTH_MULTIPLIER,BANDWIDTH_INCREASE_FACTOR,SAVE_REMOVED_LINKS_SCENARIO4, STABILIZE_BANDWIDTH, STABILIZE_AFTER_MULTIPLIER, INCREASE_BANDWIDTH_INTERVAL, NR_ACTIVE_CONNECTIONS, CHECKPOINT, CHECKPOINT_FILE
 
+REMOVED_EDGES = {1: None, 2: None, 3: None}  # Armazenar links removidos por época
+SCENARIO_2_COMPLETED = False  # Flag para identificar quando o cenário 2 foi executado
 
 class NetworkEngine:
 
@@ -28,7 +33,7 @@ class NetworkEngine:
             self.set_arpanet_topology()
             return
 
-        self.graph_topology = pickle.load(open('TopologyFiles/small_network.pickle', 'rb'))  # nx.Graph()
+        self.graph_topology = pickle.load(open("c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates/TopologyFiles/small_network.pickle", 'rb'))
         self.links = {}
         self.hosts = {}
         self.switchs = {}
@@ -88,7 +93,7 @@ class NetworkEngine:
         #plt.show()
 
         #self.all_tms = json.load(open("all_tms_test.json", mode="r"))
-        self.all_tms = json.load(open("TrafficMatrix/tms_internet_train.json", mode="r"))
+        self.all_tms = json.load(open("c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates/TrafficMatrix/tms_internet_train.json", mode="r"))
         self.current_index = 0
         self.current_tm_index = self.current_index % len(self.all_tms)          #EPOCH_SIZE
         #print("\n current rm index: ", self.current_tm_index)
@@ -472,6 +477,31 @@ class NetworkEngine:
         # return numpry array
         #print("\n average: ", np.average(bws))
         return np.asarray(bws)
+    
+    def get_link_utilization(self):
+        """Returns prbability of each link being used (100% - bw_available)"""
+        link_utils = {}
+    
+        # Para evitar links bidirecionais
+        processed_links = set()
+    
+        for (src, dst), link in self.links.items():
+            # Verificar se já processamos este link (na direção contrária)
+            if (dst, src) in processed_links:
+                continue
+                
+            if link.bw_total == 0:
+                # Link removido - marcar com valor especial (-1)
+                # ou algum outro indicador que prefira
+                link_utils[(src, dst)] = -1  # -1 indica link removido
+            else:
+                # Link normal - calcular utilização normalmente
+                utilization = 100 - link.get_bw_available_percentage()
+                link_utils[(src, dst)] = utilization
+            
+            processed_links.add((src, dst))
+    
+        return link_utils
 
     def communication_done(self):
         return all([component.is_done() for name, component in self.components.items() if "H" in name])
@@ -494,26 +524,76 @@ class NetworkEngine:
     
     def remove_edges(self, nr_edges):
 
-        # Basic edge removal:
-        # 1. Finds edges where both nodes have degree > 1
-        # 2. Randomly removes nr_edges edges
-        # 3. Adds them back with bandwidth = 0 (effectively disabling them)
-        # 4. Calls setup() to reinitialize network structure
-
         edges = []
         change = []
+        
+        # Verificar se já existe arquivo para a topologia atual
+        scenario4_file = f"{PATH_SIMULATION}/scenario4_removed_edges.json"
+        current_topology = TOPOLOGY_TYPE  # Topologia atual
+        
+        # Se o arquivo existir, verificar se é para a mesma topologia
+        if os.path.exists(scenario4_file):
+            try:
+                with open(scenario4_file, 'r') as f:
+                    edges_data = json.load(f)
+                    
+                    # Se o arquivo tem a informação da topologia e é a mesma atual
+                    if "topology" in edges_data and edges_data["topology"] == current_topology:
+                        print(f"Reutilizando links removidos da topologia {current_topology}")
+                        
+                        # Recuperar os links já removidos anteriormente
+                        if "links_removed" in edges_data:
+                            change = [tuple(e) for e in edges_data["links_removed"]]
+                            
+                            for edge in change:
+                                u, v = edge
+                                # Converter índices em nomes de hosts
+                                host_u = f"H{u + 1}" if u < self.number_of_hosts else f"S{u - self.number_of_hosts + 1}"
+                                host_v = f"H{v + 1}" if v < self.number_of_hosts else f"S{v - self.number_of_hosts + 1}"
+                                
+                                print(f"Link já removido: {host_u}-{host_v} (índice: {u}-{v})")
+                                
+                                # Remover o link
+                                self.graph_topology.remove_edge(*edge)
+                                self.graph_topology.add_edge(u, v, bw = 0)
+                            
+                            # Configurar a rede com as alterações
+                            self.setup()
+                            return
+            except (json.JSONDecodeError, FileNotFoundError):
+                print("Arquivo de links removidos inválido ou não encontrado.")
+        
+        # Se não encontramos links para reutilizar, selecionar novos aleatoriamente
+        # Manter formato original de seleção de edges
         for edge in self.graph_topology.edges():
             n1, n2 = edge
             if self.graph_topology.degree(n1) > 1 and self.graph_topology.degree(n2) > 1:
                 edges.append(edge)
+        
         change = random.sample(edges, min(nr_edges, len(edges)))
+        
         for edge in change:
-            print("changing edge: ", edge)
-            self.graph_topology.remove_edge(*edge)
             u, v = edge
-            self.graph_topology.add_edge(u, v, bw = 0)
+            host_u = f"H{u + 1}" if u < self.number_of_hosts else f"S{u - self.number_of_hosts + 1}"
+            host_v = f"H{v + 1}" if v < self.number_of_hosts else f"S{v - self.number_of_hosts + 1}"
 
+            print("changing edge: ", edge)
+            print(f"Corresponding links: {host_u} <-> {host_v}")
+
+            self.graph_topology.remove_edge(*edge)
+            self.graph_topology.add_edge(u, v, bw = 0)
+        
+        # Salvar os links removidos com informação de topologia
+        scenario4_removed_edges = {
+            "topology": current_topology,
+            "links_removed": [list(edge) for edge in change]
+        }
+        
+        with open(scenario4_file, 'w') as f:
+            json.dump(scenario4_removed_edges, f, indent=4)
+        
         self.setup()
+
     
     def add_edges(self, nr_edges):
 
@@ -562,6 +642,13 @@ class NetworkEngine:
         # 4. Reloads traffic sequences from files
         # 5. Resets traffic matrix index  
 
+        global REMOVED_EDGES, SCENARIO_2_COMPLETED
+
+        # Verificar se existe arquivo centralizado para a topologia
+        scenario2_file = f"{PATH_SIMULATION}/scenario2_removed_edges_{TOPOLOGY_TYPE}.json"
+        current_topology = TOPOLOGY_TYPE
+
+        
         if mod == 1:
             nr_links_changed = 1
         elif mod == 2:
@@ -571,31 +658,99 @@ class NetworkEngine:
 
         edges = []
         change = []
-        for edge in self.graph_topology.edges():
-            n1, n2 = edge
+
+        if mod == 1:
+            # Verificar e carregar links compartilhados entre configurações
+            if os.path.exists(scenario2_file):
+                    with open(scenario2_file, 'r') as f:
+                        edges_data = json.load(f)
+                        
+                        # Verificar se arquivo tem informações válidas
+                        if "topology" in edges_data and edges_data["topology"] == current_topology:
+                            print(f"Reutilizando links removidos da topologia {current_topology}")
+                            
+                            # Preencher REMOVED_EDGES com links do arquivo
+                            REMOVED_EDGES = {
+                                1: [tuple(e) for e in edges_data.get("1", [])],
+                                2: [tuple(e) for e in edges_data.get("2", [])],
+                                3: [tuple(e) for e in edges_data.get("3", [])]
+                            }
+                            SCENARIO_2_COMPLETED = True
+
+        # Preencher a lista de edges candidatos
+        for n1, n2, data in self.graph_topology.edges(data=True):
             if self.graph_topology.degree(n1) > 1 and self.graph_topology.degree(n2) > 1:
-                edges.append(edge)
-        change = random.sample(edges, min(nr_links_changed, len(edges)))
+                if 'bw' in data and data['bw'] == 0:
+                    continue
+                edges.append((n1,n2))
+
+        # Cenário 2: selecionar e salvar aleatoriamente
+        
+        if EVALUATE and not TRAIN and not UPDATE_WEIGHTS:
+            # Se já temos links armazenados, use-os
+            if SCENARIO_2_COMPLETED and mod in REMOVED_EDGES and REMOVED_EDGES[mod]:
+                change = REMOVED_EDGES[mod]
+            else:
+                # Seleciona novos links
+                change = random.sample(edges, min(nr_links_changed, len(edges)))
+                REMOVED_EDGES[mod] = change
+                SCENARIO_2_COMPLETED = True
+                
+                if mod == 3:
+                    edges_data = {
+                        "topology": current_topology,
+                        "1": [[e[0], e[1]] for e in REMOVED_EDGES[1]],
+                        "2": [[e[0], e[1]] for e in REMOVED_EDGES[2]],
+                        "3": [[e[0], e[1]] for e in REMOVED_EDGES[3]]
+                    }
+                    with open(scenario2_file, 'w') as f:
+                        json.dump(edges_data, f, indent=4)
+
+        # Cenário 3: usar os mesmos links do cenário 2
+        elif EVALUATE and not TRAIN and UPDATE_WEIGHTS:
+            if SCENARIO_2_COMPLETED:
+                if REMOVED_EDGES[mod] is not None:
+                    change = REMOVED_EDGES[mod]
+                    REMOVED_EDGES[mod] = change
+                    save_removed_edges(REMOVED_EDGES, True)
+
+            else:
+                print("[ERROR] Scenario 2 not completed. Cannot proceed with Scenario 3.")
+                sys.exit(1)
+
+        # Outros cenários: seleção aleatória
+        else:
+            change = random.sample(edges, min(nr_links_changed, len(edges)))
+    
+        # Remover os links selecionados
         for edge in change:
-            print("changing edge: ", edge)
-            self.graph_topology.remove_edge(*edge)
             u, v = edge
+            # Converter índices em nomes de hosts
+            host_u = f"H{u + 1}" if u < self.number_of_hosts else f"S{u - self.number_of_hosts + 1}"
+            host_v = f"H{v + 1}" if v < self.number_of_hosts else f"S{v - self.number_of_hosts + 1}"
+            
+            print("changing edge: ", edge)
+            print(f"Corresponding links: {host_u} <-> {host_v}")
+            
+            self.graph_topology.remove_edge(*edge)
             self.graph_topology.add_edge(u, v, bw = 0)
         
         #print("\n Modified", self.graph_topology)
         #print("\n edges: ", self.graph_topology.edges(data=True))
         self.setup()
         if TOPOLOGY_TYPE == "internet":
-            self.all_tms = json.load(open("TrafficMatrix/tms_internet_test.json", mode="r"))
+            self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_internet_test.json", mode="r"))
         if TOPOLOGY_TYPE == "arpanet":
             self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_arpanet_test.json", mode="r"))
         if TOPOLOGY_TYPE == "service_provider":
-            self.all_tms = json.load(open("TrafficMatrix/tms_service_provider_test.json", mode="r"))
+            self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_service_provider_test.json", mode="r"))
         self.current_index = 0
         self.current_tm_index = self.current_index % len(self.all_tms)       
         self.communication_sequences = self.all_tms[self.current_tm_index]
 
-    
+        # Salvar links removidos ao final do cenário 2
+        if EVALUATE and not TRAIN and not UPDATE_WEIGHTS and mod == 3:
+            save_removed_edges(REMOVED_EDGES, True)
 
     def add_topology_edges(self, mod): 
 
@@ -737,7 +892,7 @@ class NetworkEngine:
         self.all_tms = {}
         self.graph_has_data = True
         
-        self.graph_topology = pickle.load(open("TopologyFiles/service_provider_network.pickle", "rb"))
+        self.graph_topology = pickle.load(open("c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates/TopologyFiles/service_provider_network.pickle", "rb"))
 
         #nx.draw(self.graph_topology, with_labels=True)
         #plt.show()
@@ -758,17 +913,82 @@ class NetworkEngine:
         
         #generate_traffic_sequence_service_provider(self)
 
-        self.all_tms = json.load(open("TrafficMatrix/tms_service_provider_train.json", mode="r"))
+        self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_service_provider_test.json", mode="r"))
         self.current_index = 0
         self.current_tm_index = self.current_index % len(self.all_tms)       
-        self.communication_sequences = self.all_tms[self.current_tm_index]
-
-        
+        self.communication_sequences = self.all_tms[self.current_tm_index] 
 
     def get_nx_topology(self):
         return self.graph_topology
+    
+    def calculate_convergence(rewards, failure_point, window, threshold):
+        
+        # Iniciar do ponto após a falha
+        start_idx = failure_point
+        
+        # Procurar ponto inicial de convergência
+        convergence_point = None
+        reference_avg = None
+        
+        for i in range(start_idx + window, len(rewards) - window + 1, window):
+            current_window = rewards[i:i+window]
+            previous_window = rewards[i-window:i]
+            
+            current_avg = sum(current_window) / window
+            previous_avg = sum(previous_window) / window
+            
+            if previous_avg != 0:
+                variation = abs((current_avg - previous_avg) / previous_avg)
+                
+                # Detecta o primeiro ponto de convergência
+                if convergence_point is None and variation < threshold:
+                    convergence_point = i - failure_point
+                    reference_avg = previous_avg  # Guarda a média de referência
+                    continue
+                
+                # Se já temos um ponto de convergência, comparar com a referência original
+                if convergence_point is not None:
+                    # Comparar com a REFERÊNCIA em vez da janela anterior
+                    variation_to_reference = abs((current_avg - reference_avg) / reference_avg)
+                    if variation_to_reference >= threshold:
+                        # Se afastou demais da referência, reset da convergência
+                        convergence_point = None
+                        reference_avg = None
+        
+        if convergence_point is not None:
+            return str(convergence_point)
+        else:
+            return "Not converged"
+    
+    def increase_traffic_bandwidth(self, factor):
+        """
+        Aumenta a largura de banda de todo o tráfego pelo fator especificado
+        
+        Args:
+            factor: Multiplicador para a largura de banda (ex: 1.2 = aumento de 20%)
+        """
+        # Guardar larguras de banda originais se ainda não existirem
+        if not hasattr(self, 'original_bws'):
+            self.original_bws = {host: bw for host, bw in self.bws.items()}
+            self.current_bw_multiplier = 1.0
+        
+        self.current_bw_multiplier = min(self.current_bw_multiplier * factor, MAX_BANDWIDTH_MULTIPLIER)
 
-
+        # Verificar se atingiu o limite de estabilização
+        if STABILIZE_BANDWIDTH and self.current_bw_multiplier >= STABILIZE_AFTER_MULTIPLIER:
+            self.bandwidth_stabilized = True
+            self.current_bw_multiplier = STABILIZE_AFTER_MULTIPLIER
+            print(f"Largura de banda atingiu {self.current_bw_multiplier*100:.0f}% e foi estabilizada")
+        else:
+            print(f"Largura de banda do tráfego aumentada para {self.current_bw_multiplier*100:.0f}% do valor original")
+        
+        # Atualizar larguras de banda para todos os hosts
+        for host in self.bws:
+            original_bw = self.original_bws[host]
+            self.bws[host] = int(original_bw * self.current_bw_multiplier)
+        
+        print(f"Largura de banda do tráfego aumentada para {self.current_bw_multiplier*100:.0f}% do valor original")
+        
 def generate_traffic_sequence(network=None):
     if not network:
       network = NetworkEngine()
@@ -858,3 +1078,33 @@ def generate_traffic_sequence_service_provider(network=None):
 
     #json.dump(list_all_communications, open("tms_service_provider_train.json", "w"), indent=4)
     return  communications
+
+def save_removed_edges(removed_edges, scenario_completed=True):
+    # Serializa edges para formato que pode ser salvo em JSON
+    edges_data = {str(k): [[e[0], e[1]] for e in v] if v is not None else None 
+                  for k, v in removed_edges.items()}
+    
+    # Salva os edges removidos em arquivo
+    with open(f"{PATH_SIMULATION}/removed_edges.json", "w") as f:
+        json.dump(edges_data, f)
+    
+    # Salva flag indicando que cenário 2 foi completado
+    with open(f"{PATH_SIMULATION}/scenario_completed.txt", "w") as f:
+        f.write(str(scenario_completed))
+    
+def load_removed_edges():
+    try:
+        # Carrega edges removidos do arquivo
+        with open(f"{PATH_SIMULATION}/removed_edges.json", "r") as f:
+            edges_data = json.load(f)
+            removed_edges = {int(k): [tuple(e) for e in v] if v is not None else None 
+                          for k, v in edges_data.items()}
+        
+        # Carrega flag de cenário 2 completo
+        with open(f"{PATH_SIMULATION}/scenario_completed.txt", "r") as f:
+            scenario_completed = f.read().strip() == "True"
+            
+        return removed_edges, scenario_completed
+    except:
+        print("[WARNING] Failed to load removed edges or scenario completion status.")
+        
