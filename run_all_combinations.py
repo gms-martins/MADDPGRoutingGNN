@@ -4,7 +4,7 @@ import time
 import sys
 import importlib
 
-script_dir = "c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates"
+script_dir = os.environ.get("PATH_SIMULATION", "c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates")
 script_path = os.path.join(script_dir, "MADDPG.py")
 
 # Topologia fixa

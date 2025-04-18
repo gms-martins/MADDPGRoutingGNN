@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  rrc-drl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rrc-drl-image
+    container_name: rrc-drl-container
+    volumes:
+      - ./results:/app/results
+    environment:
+      - PATH_SIMULATION=/app
+      - PYTHONUNBUFFERED=1
+    tty: true
+    stdin_open: true
+    command: python ./run_all_combinations.py
