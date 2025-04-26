@@ -94,7 +94,8 @@ class NetworkEngine:
         #plt.show()
 
         #self.all_tms = json.load(open("all_tms_test.json", mode="r"))
-        self.all_tms = json.load(open("c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates/TrafficMatrix/tms_internet_train.json", mode="r"))
+        #self.all_tms = json.load(open("c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates/TrafficMatrix/tms_internet_train.json", mode="r"))
+        self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_internet_train.json", mode="r"))
         self.current_index = 0
         self.current_tm_index = self.current_index % len(self.all_tms)          #EPOCH_SIZE
         #print("\n current rm index: ", self.current_tm_index)

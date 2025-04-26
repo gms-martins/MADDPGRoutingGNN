@@ -6,8 +6,8 @@ NR_EPOCHS = 5
 EPOCH_SIZE = 5
 
 NOTES = ""
-PATH_SIMULATION = "c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates"
-SIM_NR = "20250415_151733_central_critic_duelling_q_network"
+PATH_SIMULATION = "/workspaces/RRC_DRL_Updates"
+SIM_NR = "20250423_115640_shortest_shortest"
 CHECKPOINT = False
 CHECKPOINT_FILE = ""
 
@@ -21,8 +21,8 @@ SAVE_REMOVED_LINKS_SCENARIO4 = True
 TOPOLOGY_TYPE = "internet"; NUMBER_OF_HOSTS = 25; NUMBER_OF_AGENTS = 25; NR_MAX_LINKS = 11
 STATE_SIZE = NR_MAX_LINKS + 1 + NR_ACTIVE_CONNECTIONS * 2 + 1
 
-CRITIC_DOMAIN = "central_critic"
-NEURAL_NETWORK = "duelling_q_network"
+CRITIC_DOMAIN = "shortest"
+NEURAL_NETWORK = "shortest"
 
 EVALUATE = True
 UPDATE_WEIGHTS = True

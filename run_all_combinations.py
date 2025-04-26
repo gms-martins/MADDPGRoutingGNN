@@ -4,11 +4,12 @@ import time
 import sys
 import importlib
 
-script_dir = os.environ.get("PATH_SIMULATION", "c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates")
+#script_dir = os.environ.get("PATH_SIMULATION", "c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates")
+script_dir = os.environ.get("PATH_SIMULATION", "/workspaces/RRC_DRL_Updates")
 script_path = os.path.join(script_dir, "MADDPG.py")
 
 # Topologia fixa
-topology = "internet"  # ou "internet", "service_provider"
+topology = "internet"  # ou "arpanet", "service_provider"
 number_of_hosts = 25 #25 33 65
 number_of_agents = 25 #25 33 65
 nr_max_links = 11 #11 6 4
