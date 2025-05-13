@@ -2,14 +2,13 @@
 NR_ACTIVE_CONNECTIONS = 10
 NUMBER_OF_PATHS = 3
 
-NR_EPOCHS = 5
-EPOCH_SIZE = 5
+NR_EPOCHS = 4
+EPOCH_SIZE = 4
 
 NOTES = ""
-PATH_SIMULATION = "/workspaces/RRC_DRL_Updates"
-SIM_NR = "20250423_115640_shortest_shortest"
-CHECKPOINT = False
-CHECKPOINT_FILE = ""
+PATH_SIMULATION = "c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates"
+SIM_NR = "20250513_160334_local_critic_duelling_q_network_GNN"
+
 
 INCREASE_BANDWIDTH_INTERVAL = 3
 BANDWIDTH_INCREASE_FACTOR = 1.4
@@ -21,11 +20,14 @@ SAVE_REMOVED_LINKS_SCENARIO4 = True
 TOPOLOGY_TYPE = "internet"; NUMBER_OF_HOSTS = 25; NUMBER_OF_AGENTS = 25; NR_MAX_LINKS = 11
 STATE_SIZE = NR_MAX_LINKS + 1 + NR_ACTIVE_CONNECTIONS * 2 + 1
 
-CRITIC_DOMAIN = "shortest"
-NEURAL_NETWORK = "shortest"
+CRITIC_DOMAIN = "local_critic"
+NEURAL_NETWORK = "duelling_q_network"
 
 EVALUATE = True
 UPDATE_WEIGHTS = True
-TRAIN = True
+TRAIN = False
 
 MODIFIED_NETWORK = "remove_edges"
+
+# Controla se a GNN é usada ou não
+USE_GNN = True

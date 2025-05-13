@@ -7,8 +7,85 @@ import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.utils import from_networkx
 
+from environmental_variables import NEURAL_NETWORK, PATH_SIMULATION, SIM_NR, USE_GNN
 
-from environmental_variables import NEURAL_NETWORK, PATH_SIMULATION, SIM_NR
+
+class GNNProcessor(nn.Module):
+    """
+    Processador GNN para transformar o estado da rede antes de enviá-lo ao agente.
+    Implementa uma Graph Convolutional Network simples.
+    """
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(GNNProcessor, self).__init__()
+        
+        # Camadas GCN
+        self.conv1 = GCNConv(input_dim, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, output_dim)
+        
+        # Camada extra para garantir dimensionalidade correta
+        self.fc_output = nn.Linear(output_dim, output_dim)
+        
+        # Dispositivo para processamento
+        self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
+        self.to(self.device)
+    
+    def forward(self, x, edge_index):
+        # Primeira camada convolucional com ReLU
+        x = self.conv1(x, edge_index)
+        x = F.relu(x)
+        
+        # Segunda camada convolucional
+        x = self.conv2(x, edge_index)
+        
+        return x
+    
+    def process_state(self, state, graph_data=None):
+        """
+        Processa o estado usando a GNN.
+        Se graph_data não for fornecido, cria um grafo simples.
+        """
+        # Determinar a dimensão de entrada esperada pelo ator
+        expected_dim = state.shape[1] if hasattr(state, 'shape') and len(state.shape) > 1 else 33
+        
+        if graph_data is None:
+            # Caso não tenhamos dados do grafo, criar um grafo simples linha
+            # Este é um fallback e idealmente deve ser substituído por dados reais da topologia
+            num_nodes = len(state)
+            x = T.tensor(state, dtype=T.float).reshape(-1, 1).to(self.device)
+            
+            # Criar arestas conectando nós adjacentes (grafo linha)
+            edge_index = []
+            for i in range(num_nodes-1):
+                edge_index.extend([[i, i+1], [i+1, i]])  # Bidirecionais
+            
+            # Garantir que edge_index está na forma correta (2 x n_edges)
+            edge_index = T.tensor(edge_index, dtype=T.long).t().contiguous().to(self.device)
+        else:
+            # Usar os dados do grafo fornecidos
+            x = T.tensor(graph_data['x'], dtype=T.float).to(self.device)
+            
+            # Certificar que o edge_index está no formato correto (2 x n_edges)
+            edge_index = T.tensor(graph_data['edge_index'], dtype=T.long)
+            if edge_index.shape[0] != 2:
+                # Se as dimensões estiverem invertidas, transpor para obter (2 x n_edges)
+                edge_index = edge_index.t()
+            edge_index = edge_index.contiguous().to(self.device)
+        
+        # Processar através da GNN
+        output = self(x, edge_index)
+        
+        # Obter um vetor representativo do grafo (média dos embeddings dos nós)
+        mean_output = T.mean(output, dim=0)
+        
+        # Ajustar para a dimensão esperada pelo ator
+        final_output = mean_output[:expected_dim] if mean_output.shape[0] > expected_dim else mean_output
+        
+        # Se a saída for menor que o esperado, adicionar padding
+        if final_output.shape[0] < expected_dim:
+            padding = T.zeros(expected_dim - final_output.shape[0], device=self.device)
+            final_output = T.cat([final_output, padding])
+        
+        return final_output.detach().cpu().numpy()
 
 
 class Agent:
@@ -22,6 +99,14 @@ class Agent:
         #fa2 = fc2 #
         self.agent_name = 'agent_%s' %agent_idx
         self.load_name = self.agent_name
+        
+        # Adicionar processador GNN se habilitado
+        self.use_gnn = USE_GNN
+        if self.use_gnn:
+            # Input_dim=1 (característica por nó), hidden_dim=16, output_dim=fa1 (igual à dim da camada fc1 do ator)
+            self.gnn_processor = GNNProcessor(input_dim=1, hidden_dim=16, output_dim=fa1)
+        else:
+            self.gnn_processor = None
 
         # Actor usa o estado local (Slocal) para escolher uma ação
         # Critic usa o estado central/global (Sglobal) para avaliar a ação
@@ -40,15 +125,39 @@ class Agent:
 
         self.update_network_parameters(tau=1)
  
-    def choose_action(self, observation):
-        observation_array = np.array([observation], dtype=np.float32)
-        #print("\nobservation array []: ", observation_array)
+    def choose_action(self, observation, graph_data=None):
+        # Processar com GNN se estiver habilitada
+        if self.use_gnn and self.gnn_processor is not None:
+            processed_observation = self.gnn_processor.process_state(observation, graph_data)
+            
+            # Garantir que a dimensão do tensor corresponde ao esperado pelo ator
+            observation_array = np.array([processed_observation], dtype=np.float32)
+            
+            # Assegurar que as dimensões são compatíveis com a entrada da rede
+            if observation_array.shape[1] != self.actor.fc1.in_features:
+                # Determinar se precisamos adicionar padding ou truncar
+                if observation_array.shape[1] < self.actor.fc1.in_features:
+                    # Caso 1: A saída da GNN é menor que o esperado - adicionar padding
+                    padding = np.zeros((1, self.actor.fc1.in_features - observation_array.shape[1]), dtype=np.float32)
+                    observation_array = np.concatenate([observation_array, padding], axis=1)
+                    print(f"AVISO: Adicionando padding ao estado processado por GNN: {processed_observation.shape} -> {observation_array.shape}")
+                else:
+                    # Caso 2: A saída da GNN é maior que o esperado - truncar
+                    observation_array = observation_array[:, :self.actor.fc1.in_features]
+                    print(f"AVISO: Truncando estado processado por GNN: {processed_observation.shape} -> {observation_array.shape}")
+        else:
+            observation_array = np.array([observation], dtype=np.float32)
+        
+        # Converter para tensor e enviar ao dispositivo apropriado
         state = T.tensor(observation_array, dtype=T.float).to(self.actor.device)
+        
+        # Garantir que o tensor tem a forma [batch_size, input_dim]
+        if len(state.shape) == 1:
+            state = state.unsqueeze(0)
 
         actions = self.actor.forward(state)
         noise = T.rand(self.n_actions).to(self.actor.device)
-        action = actions ##
-        #action = actions + noise
+        action = actions
         return action.detach().cpu().numpy()[0]
 
     def update_network_parameters(self, tau=None):

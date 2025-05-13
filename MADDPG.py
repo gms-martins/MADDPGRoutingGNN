@@ -19,7 +19,7 @@ from MultiAgentReplayBuffer import MultiAgentReplayBuffer
 from NetworkEngine import NetworkEngine
 from NetworkEngine import REMOVED_EDGES, SCENARIO_2_COMPLETED
 from NetworkEnv import NetworkEnv
-from environmental_variables import STATE_SIZE, EPOCH_SIZE, NUMBER_OF_AGENTS, NR_EPOCHS, EVALUATE, CRITIC_DOMAIN, SIM_NR, TRAIN, NEURAL_NETWORK, MODIFIED_NETWORK, NOTES, TOPOLOGY_TYPE, UPDATE_WEIGHTS, PATH_SIMULATION, NUMBER_OF_PATHS, NUMBER_OF_HOSTS, CHECKPOINT, CHECKPOINT_FILE, BANDWIDTH_INCREASE_FACTOR,INCREASE_BANDWIDTH_INTERVAL,STABILIZE_BANDWIDTH , STABILIZE_AFTER_MULTIPLIER, SAVE_REMOVED_LINKS_SCENARIO4, MAX_BANDWIDTH_MULTIPLIER, CRITIC_DOMAIN, NUMBER_OF_PATHS, NUMBER_OF_AGENTS, NR_EPOCHS, EPOCH_SIZE, PATH_SIMULATION, SIM_NR, CHECKPOINT_FILE, CHECKPOINT, MODIFIED_NETWORK
+from environmental_variables import STATE_SIZE, EPOCH_SIZE, NUMBER_OF_AGENTS, NR_EPOCHS, EVALUATE, CRITIC_DOMAIN, SIM_NR, TRAIN, NEURAL_NETWORK, MODIFIED_NETWORK, NOTES, TOPOLOGY_TYPE, UPDATE_WEIGHTS, PATH_SIMULATION, NUMBER_OF_PATHS, NUMBER_OF_HOSTS,BANDWIDTH_INCREASE_FACTOR,INCREASE_BANDWIDTH_INTERVAL,STABILIZE_BANDWIDTH , STABILIZE_AFTER_MULTIPLIER, SAVE_REMOVED_LINKS_SCENARIO4, MAX_BANDWIDTH_MULTIPLIER, CRITIC_DOMAIN, NUMBER_OF_PATHS, NUMBER_OF_AGENTS, NR_EPOCHS, EPOCH_SIZE, PATH_SIMULATION, SIM_NR, MODIFIED_NETWORK, USE_GNN
 #, GRAPH_BATCH_SIZE
 
 
@@ -47,10 +47,10 @@ class MADDPG:
         for agent in self.agents:
             agent.load_models()
 
-    def choose_action(self, raw_obs):#, topology):
+    def choose_action(self, raw_obs, graph_data=None):
         actions = []
         for agent_idx, agent in enumerate(self.agents):
-            action = agent.choose_action(raw_obs[agent_idx]) #, topology)
+            action = agent.choose_action(raw_obs[agent_idx], graph_data)
             actions.append(np.argmax(action))
         return actions
 
@@ -206,21 +206,30 @@ if __name__ == '__main__':
         folder_name = f"{learning}_{MODIFIED_NETWORK}"
     else:
         folder_name = learning 
+        
+    # Definir sufixos para diferenciar execuções com e sem GNN
+    gnn_suffix = "com_GNN" if USE_GNN else "sem_GNN"
 
     base_path = f'{PATH_SIMULATION}/results'
 
+    # 1. Criar pasta da topologia (ex: internet)
     topology_path = os.path.join(base_path, TOPOLOGY_TYPE)
     if not os.path.exists(topology_path):
         print(f"Creating topology directory '{TOPOLOGY_TYPE}'")
         os.mkdir(topology_path)
-
-    critic_nn_folder = f'{CRITIC_DOMAIN}_{NEURAL_NETWORK}'
-    critic_nn_path = os.path.join(topology_path, critic_nn_folder)
-    if not os.path.exists(critic_nn_path):
-        print(f"Creating '{critic_nn_folder}' directory")
-        os.mkdir(critic_nn_path)
-
     
+    # 2. Criar pasta GNN dentro da pasta da topologia (ex: internet/sem_GNN)
+    gnn_path = os.path.join(topology_path, gnn_suffix)
+    if not os.path.exists(gnn_path):
+        print(f"Creating '{gnn_suffix}' directory in {TOPOLOGY_TYPE}")
+        os.mkdir(gnn_path)
+    
+    # 3. Criar pasta do tipo de crítico e rede neural dentro da pasta GNN
+    critic_nn_folder = f'{CRITIC_DOMAIN}_{NEURAL_NETWORK}'
+    critic_nn_path = os.path.join(gnn_path, critic_nn_folder)
+    if not os.path.exists(critic_nn_path):
+        print(f"Creating '{critic_nn_folder}' directory in {gnn_suffix}")
+        os.mkdir(critic_nn_path)
 
     if not EVALUATE:
         scenario_number = 1  # Cenário 1: Treinamento padrão
@@ -231,9 +240,14 @@ if __name__ == '__main__':
     elif EVALUATE and TRAIN:
         scenario_number = 4  # Cenário 4: Treinar após mudanças na topologia
 
+    # 4. Criar pasta específica para este experimento
     specific_folder = f'{NR_EPOCHS}epo_{EPOCH_SIZE}epi_{folder_name}_{scenario_number}'
     folder_path = os.path.join(critic_nn_path, specific_folder)
-    os.mkdir(folder_path)
+    
+    # Verificar se a pasta já existe antes de tentar criá-la
+    if not os.path.exists(folder_path):
+        print(f"Creating experiment directory '{specific_folder}'")
+        os.makedirs(folder_path, exist_ok=True)
     
     sub_path = f'{NR_EPOCHS}epo_{EPOCH_SIZE}epi_{TOPOLOGY_TYPE}_{folder_name}'
 
@@ -254,16 +268,6 @@ if __name__ == '__main__':
         maddpg_agents.load_checkpoint()
 
     i_epoch = 0
-
-    if CHECKPOINT:
-        maddpg_agents.load_checkpoint()
-        check_file = np.loadtxt(CHECKPOINT_FILE, delimiter=',', dtype=float)[1,:]
-        for i in np.arange(0, len(check_file)):
-            if check_file[i] != 0:
-                y_axis_training = check_file[i]
-            else:
-                i_epoch = i
-                break
 
     packet_loss_evaluate = []
     packet_sent_evaluate = []
@@ -339,6 +343,34 @@ if __name__ == '__main__':
                 states = []  # np.empty((50, agent_dim), dtype=np.double)
                 critic_states = []
                 dismiss_indexes = []
+                
+                # Preparar dados do grafo para GNN quando necessário
+                graph_data = None
+                if USE_GNN:
+                    # Criar representação do grafo para a GNN
+                    # Cada nó é um host, e cada aresta é uma conexão entre hosts
+                    # Características dos nós: largura de banda disponível normalizada (0-1)
+                    nodes = []
+                    edges = []
+                    node_features = []
+                    
+                    # Obter dados da topologia
+                    for i, host in enumerate(all_hosts):
+                        nodes.append(i)
+                        bw = eng.bws.get(host, 0) / 100.0  # Normalizar BW para 0-1
+                        node_features.append([bw])
+                    
+                    # Criar arestas baseadas nas conexões entre hosts
+                    for i, host_i in enumerate(all_hosts):
+                        for j, host_j in enumerate(all_hosts):
+                            if i != j and eng.get_link(host_i, host_j) is not None:
+                                edges.append([i, j])
+                    
+                    # Dados do grafo para a GNN
+                    graph_data = {
+                        'x': np.array(node_features, dtype=np.float32),
+                        'edge_index': np.array(edges, dtype=np.int64)
+                    }
 
                 for index, host in enumerate(all_hosts):
                     all_dst_states = eng.get_state(host, 1)
@@ -352,13 +384,13 @@ if __name__ == '__main__':
                         state = all_dst_states
                     states.append(state)
 
-                    #print("state: ", state)
                     if CRITIC_DOMAIN == "central_critic":
                         critic_states.append(np.concatenate((eng.get_link_usage(), np.array(all_dsts)), axis=0))
                     elif CRITIC_DOMAIN == "local_critic":     
                         critic_states.append(state)
 
-                actions = maddpg_agents.choose_action(states)
+                # Escolher ações com dados do grafo quando GNN está habilitada
+                actions = maddpg_agents.choose_action(states, graph_data if USE_GNN else None)
 
                 actions_dict = {}
                 for index, host in enumerate(all_hosts):
@@ -438,14 +470,13 @@ if __name__ == '__main__':
                     break
             
             available_bw_episode[e] = np.average(available_bw_time_steps)
-            
-            ## DATA
+              ## DATA
             print(f"episode {e}/{episode_size}, epoch {epoch}/{nr_epochs}")
             print("Total reward", total_reward)
             #print("Total package loss", ng.statistics['package_loss'])
             #print(" ")
 
-            if (e % 3 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS) and CRITIC_DOMAIN != "shortest":
+            if (e % 3 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS and CRITIC_DOMAIN != "shortest"):
                 #old_weights = maddpg_agents.agents[0].actor.fc1.weight.clone().detach()
                 maddpg_agents.learn(memory)
                 #new_weights = maddpg_agents.agents[0].actor.fc1.weight.clone().detach()
@@ -934,6 +965,14 @@ if __name__ == '__main__':
         # Caminho base para a topologia atual
         topology_path = os.path.join(PATH_SIMULATION, "results", topology_type)
 
+        # Definir o caminho correto com base em USE_GNN
+        gnn_suffix = "com_GNN" if USE_GNN else "sem_GNN"
+        gnn_path = os.path.join(topology_path, gnn_suffix)
+
+        # Garantir que os diretórios existem
+        if not os.path.exists(gnn_path):
+            os.makedirs(gnn_path, exist_ok=True)
+
         # Configurações a comparar
         configurations = [
             "central_critic_duelling_q_network",
@@ -942,9 +981,10 @@ if __name__ == '__main__':
             "shortest_shortest"
         ]
         
-        # Criar pasta para comparações
-        comparison_folder = os.path.join(topology_path, "comparisons")
+        # Criar pasta para comparações dentro da pasta GNN específica
+        comparison_folder = os.path.join(gnn_path, "comparisons")
         if not os.path.exists(comparison_folder):
+            print(f"Criando pasta 'comparisons' em {gnn_suffix}")
             os.makedirs(comparison_folder)
         
         print(f"Gerando gráficos comparativos para topologia {topology_type}...")
@@ -958,7 +998,7 @@ if __name__ == '__main__':
             reward_data_found = False
             
             for config in configurations:
-                config_path = os.path.join(topology_path, config)
+                config_path = os.path.join(gnn_path, config)
                 if not os.path.exists(config_path):
                     continue
                     
@@ -1066,7 +1106,7 @@ if __name__ == '__main__':
             congestion_data = {}
             
             for config in configurations:
-                config_path = os.path.join(topology_path, config)
+                config_path = os.path.join(gnn_path, config)
                 if not os.path.exists(config_path):
                     continue
                     
@@ -1215,9 +1255,12 @@ if __name__ == '__main__':
             compare_early_late_links(link_utilization_history, folder_path, nr_epochs)
             plot_epoch_rewards_scen4(y_axis_training, folder_path, INCREASE_BANDWIDTH_INTERVAL)
 
+            # Gerar gráficos comparativos apenas quando for o cenário shortest_shortest
+            # Este deve ser o último cenário a ser executado para cada configuração
             if CRITIC_DOMAIN == "shortest" and NEURAL_NETWORK == "shortest":
+                print(f"Gerando gráficos comparativos para {TOPOLOGY_TYPE} na pasta {gnn_suffix}/comparisons")
                 create_comparison_graphs(TOPOLOGY_TYPE)
-    
-    
-    
             
+
+
+
