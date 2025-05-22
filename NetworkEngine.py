@@ -524,13 +524,12 @@ class NetworkEngine:
         #self.bws = {host: bw if host not in self.single_con_hosts else bw // 3 for host, bw in self.bws.items()}
 
     
-    def remove_edges(self, nr_edges):
+    def remove_edges(self, nr_edges): 
 
         edges = []
         change = []
-        
-        # Verificar se já existe arquivo para a topologia atual
-        scenario4_file = f"{PATH_SIMULATION}/scenario4_removed_edges.json"
+          # Verificar se já existe arquivo para a topologia atual
+        scenario4_file = f"{PATH_SIMULATION}/scenario4_removed_edges_{TOPOLOGY_TYPE}.json"
         current_topology = TOPOLOGY_TYPE  # Topologia atual
         
         # Se o arquivo existir, verificar se é para a mesma topologia
@@ -565,7 +564,13 @@ class NetworkEngine:
             except (json.JSONDecodeError, FileNotFoundError):
                 print("Arquivo de links removidos inválido ou não encontrado.")
         
-        # Se não encontramos links para reutilizar, selecionar novos aleatoriamente
+        # Se chegou aqui, significa que:
+        # 1. O arquivo não existe, OU
+        # 2. O arquivo existe mas não é para a topologia atual, OU
+        # 3. Houve um erro ao ler o arquivo
+        # Então, vamos selecionar novos links aleatoriamente
+        print(f"Selecionando novos links para remover na topologia {current_topology}")
+        
         # Manter formato original de seleção de edges
         for edge in self.graph_topology.edges():
             n1, n2 = edge
@@ -838,7 +843,7 @@ class NetworkEngine:
         self.single_con_hosts = [f"H{int(host) + 1}" for host in self.graph_topology if len(self.graph_topology.edges(host)) == 1]  
         self.bws = {host: bw if host not in self.single_con_hosts else bw // 3 for host, bw in self.bws.items()}
         
-        self.all_tms = json.load(open(f"{PATH_SIMULATION}/TopologyFiles/tms_arpanet_train.json", mode="r"))
+        self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_arpanet_train.json", mode="r"))
         self.current_index = 0
         self.current_tm_index = self.current_index % len(self.all_tms)       
         self.communication_sequences = self.all_tms[self.current_tm_index]

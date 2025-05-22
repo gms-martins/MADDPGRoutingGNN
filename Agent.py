@@ -6,8 +6,10 @@ import networkx as nx
 import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.utils import from_networkx
+import functools
+from collections import OrderedDict
 
-from environmental_variables import NEURAL_NETWORK, PATH_SIMULATION, SIM_NR, USE_GNN
+from environmental_variables import NEURAL_NETWORK, PATH_SIMULATION, SIM_NR, USE_GNN, STATE_SIZE, TOPOLOGY_TYPE, CRITIC_DOMAIN
 
 
 class GNNProcessor(nn.Module):
@@ -19,16 +21,16 @@ class GNNProcessor(nn.Module):
         super(GNNProcessor, self).__init__()
         
         # Camadas GCN
-        self.conv1 = GCNConv(input_dim, hidden_dim)
-        self.conv2 = GCNConv(hidden_dim, output_dim)
+        self.conv1 = GraphConv(input_dim, hidden_dim)
+        self.conv2 = GraphConv(hidden_dim, output_dim)
         
         # Camada extra para garantir dimensionalidade correta
-        self.fc_output = nn.Linear(output_dim, output_dim)
+        #self.fc_output = nn.Linear(output_dim, output_dim)
         
         # Dispositivo para processamento
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.to(self.device)
-    
+
     def forward(self, x, edge_index):
         # Primeira camada convolucional com ReLU
         x = self.conv1(x, edge_index)
@@ -38,14 +40,19 @@ class GNNProcessor(nn.Module):
         x = self.conv2(x, edge_index)
         
         return x
-    
+        
     def process_state(self, state, graph_data=None):
         """
         Processa o estado usando a GNN.
         Se graph_data não for fornecido, cria um grafo simples.
         """
-        # Determinar a dimensão de entrada esperada pelo ator
-        expected_dim = state.shape[1] if hasattr(state, 'shape') and len(state.shape) > 1 else 33
+        # Usar o STATE_SIZE global para todas as topologias
+        # Isso garante consistência entre todas as topologias (arpanet, internet, service_provider)
+        expected_dim = STATE_SIZE  # Usar o STATE_SIZE configurado para cada topologia
+        
+        # Manter uma verificação de fallback caso não exista STATE_SIZE por algum motivo
+        if expected_dim is None or expected_dim <= 0:
+            expected_dim = state.shape[1] if hasattr(state, 'shape') and len(state.shape) > 1 else len(state)
         
         if graph_data is None:
             # Caso não tenhamos dados do grafo, criar um grafo simples linha
@@ -128,12 +135,13 @@ class Agent:
     def choose_action(self, observation, graph_data=None):
         # Processar com GNN se estiver habilitada
         if self.use_gnn and self.gnn_processor is not None:
+            # PASSO 1: Processar o estado com a GNN
             processed_observation = self.gnn_processor.process_state(observation, graph_data)
             
-            # Garantir que a dimensão do tensor corresponde ao esperado pelo ator
+            # PASSO 2: Preparar o array de observação
             observation_array = np.array([processed_observation], dtype=np.float32)
             
-            # Assegurar que as dimensões são compatíveis com a entrada da rede
+            # PASSO 3: Ajustar as dimensões se necessário
             if observation_array.shape[1] != self.actor.fc1.in_features:
                 # Determinar se precisamos adicionar padding ou truncar
                 if observation_array.shape[1] < self.actor.fc1.in_features:
@@ -146,19 +154,13 @@ class Agent:
                     observation_array = observation_array[:, :self.actor.fc1.in_features]
                     print(f"AVISO: Truncando estado processado por GNN: {processed_observation.shape} -> {observation_array.shape}")
         else:
+            # PASSO ALTERNATIVO: Usar a observação original se GNN estiver desabilitada
             observation_array = np.array([observation], dtype=np.float32)
-        
-        # Converter para tensor e enviar ao dispositivo apropriado
+          # Converter para tensor e enviar ao dispositivo apropriado
         state = T.tensor(observation_array, dtype=T.float).to(self.actor.device)
         
-        # Garantir que o tensor tem a forma [batch_size, input_dim]
-        if len(state.shape) == 1:
-            state = state.unsqueeze(0)
-
         actions = self.actor.forward(state)
-        noise = T.rand(self.n_actions).to(self.actor.device)
-        action = actions
-        return action.detach().cpu().numpy()[0]
+        return actions.detach().cpu().numpy()[0]
 
     def update_network_parameters(self, tau=None):
         if tau is None:

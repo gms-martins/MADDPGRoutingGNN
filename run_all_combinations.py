@@ -34,42 +34,47 @@ test_scenarios = [
 import datetime
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-for topology, number_of_hosts, number_of_agents, nr_max_links in topology_configs:
 
-    print(f"\n===== Iniciando experimentos com topologia: {topology} =====")
-    print(f"Hosts: {number_of_hosts}, Agents: {number_of_agents}, Max Links: {nr_max_links}\n")
-    
-    # Primeiro executa todas as configurações sem GNN (original)
-    for use_gnn in [False, True]:
-        gnn_status = "COM GNN" if use_gnn else "SEM GNN (ORIGINAL)"
-        print(f"\n\n{'=' * 60}")
-        print(f"INICIANDO EXECUÇÕES {gnn_status}")
-        print(f"{'=' * 60}\n")
-        
+# Primeiro executa todas as configurações sem GNN (original)
+for use_gnn in [False, True]: # True para usar GNN
+    gnn_status = "COM GNN" if use_gnn else "SEM GNN (ORIGINAL)"
+    print(f"\n\n{'=' * 60}")
+    print(f"INICIANDO EXECUÇÕES {gnn_status}")
+    print(f"{'=' * 60}\n")
+
+    for topology, number_of_hosts, number_of_agents, nr_max_links in topology_configs:
+
+        print(f"\n===== Iniciando experimentos com topologia: {topology} =====")
+        print(f"Hosts: {number_of_hosts}, Agents: {number_of_agents}, Max Links: {nr_max_links}\n")
         for critic, network in train_configs:
+            # Pular a combinação "shortest-shortest" quando GNN está ativada
+            if use_gnn and critic == "shortest" and network == "shortest":
+                print(f"Pulando configuração 'shortest-shortest' com GNN ativada (não recomendado)")
+                continue  # Simplesmente pula para a próxima combinação sem executar
+            
+            # Para todas as outras combinações, executar normalmente
             for eval_flag, update_flag, train_flag in test_scenarios:
-                # Gerar cenário
-                if not eval_flag:
-                    scenario_name = "train"
-                elif eval_flag and not train_flag and not update_flag:
-                    scenario_name = "eval"
-                elif eval_flag and not train_flag and update_flag:
-                    scenario_name = "eval_update"
-                else:
-                    scenario_name = "eval_train"
-                
-                # Adicionar sufixo GNN à pasta para os resultados com GNN
-                gnn_suffix = "_GNN" if use_gnn else ""
-                timestamp_with_gnn = f"{timestamp}_{critic}_{network}{gnn_suffix}"                # Gerar código atualizado para as variáveis
-                env_file = os.path.join(script_dir, "environmental_variables.py")
-                
-                with open(env_file, "w") as f:
-                    f.write(f'''
+                    # Gerar cenário
+                    if not eval_flag:
+                        scenario_name = "train"
+                    elif eval_flag and not train_flag and not update_flag:
+                        scenario_name = "eval"
+                    elif eval_flag and not train_flag and update_flag:
+                        scenario_name = "eval_update"
+                    else:
+                        scenario_name = "eval_train"
+                    
+                    # Adicionar sufixo GNN à pasta para os resultados com GNN
+                    gnn_suffix = "_GNN" if use_gnn else ""
+                    timestamp_with_gnn = f"{timestamp}_{critic}_{network}{gnn_suffix}"                # Gerar código atualizado para as variáveis
+                    env_file = os.path.join(script_dir, "environmental_variables.py")
+                    with open(env_file, "w") as f:
+                        f.write(f'''
 NR_ACTIVE_CONNECTIONS = 10
 NUMBER_OF_PATHS = 3
 
-NR_EPOCHS = 4
-EPOCH_SIZE = 4
+NR_EPOCHS = 2
+EPOCH_SIZE = 2
 
 NOTES = ""
 PATH_SIMULATION = "{script_dir}"
@@ -98,16 +103,18 @@ MODIFIED_NETWORK = "remove_edges"
 # Controla se a GNN é usada ou não
 USE_GNN = {use_gnn}
 ''')
-
-                # Garantir que o arquivo seja salvo completamente
-                time.sleep(1)
+                    
+                    # Garantir que o arquivo seja salvo completamente
+                    time.sleep(1)
+                    
+                    # Exibir configuração atual
+                    print(f"Executando {gnn_status}: {critic} | {network} | EVAL={eval_flag}, UPDATE={update_flag}, TRAIN={train_flag}")
+                    
+                    # Usar o caminho completo e executar em um novo ambiente
+                    subprocess.run(["python", script_path], cwd=script_dir)
+                    
+                    # Forçar um atraso entre execuções para garantir que os
+                    # arquivos temporários sejam liberados e o cache seja resetado
+                    time.sleep(2)
                 
-                # Exibir configuração atual
-                print(f"Executando {gnn_status}: {critic} | {network} | EVAL={eval_flag}, UPDATE={update_flag}, TRAIN={train_flag}")
                 
-                # Usar o caminho completo e executar em um novo ambiente
-                subprocess.run(["python", script_path], cwd=script_dir)
-                
-                # Forçar um atraso entre execuções para garantir que os
-                # arquivos temporários sejam liberados e o cache seja resetado
-                time.sleep(2)

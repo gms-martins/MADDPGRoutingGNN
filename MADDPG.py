@@ -139,17 +139,16 @@ if __name__ == '__main__':
     env = NetworkEnv(eng)
 
     n_action = NUMBER_OF_PATHS
-    
     total_rewards = []
     batch_rewards = []
     agents = eng.get_all_hosts()
     all_hosts = eng.get_all_hosts()
-
+    
     agent_dim = STATE_SIZE
     agent_dims = [agent_dim for host in all_hosts]
 
-    REPLAY_MEMORY = 1000 #50000
-    MEMORY_BATCH = 100 #256
+    REPLAY_MEMORY = 50000 #Aumentado para melhor estabilidade 
+    MEMORY_BATCH = 256 #Batch maior para melhor aprendizado
 
     if CRITIC_DOMAIN == "central_critic":
         critic_dim = len(eng.get_link_usage()) + NUMBER_OF_AGENTS
@@ -160,11 +159,9 @@ if __name__ == '__main__':
     elif CRITIC_DOMAIN == "shortest":
         critic_dim = len(eng.get_link_usage()) + NUMBER_OF_AGENTS
         critic_dims = [critic_dim for i in range(NUMBER_OF_AGENTS)]
-
-
     maddpg_agents = MADDPG(agent_dims, critic_dims, NUMBER_OF_AGENTS, n_action,
                            fa1=10, fa2=64, fc1=15, fc2=64,
-                           alpha=0.001, beta=0.0001, tau=0.0001, chkpt_dir='.\\tmp\\maddpg\\') #0.0001
+                           alpha=0.003, beta=0.0003, tau=0.001, chkpt_dir='.\\tmp\\maddpg\\') #valores ajustados para aprendizagem mais rápida
     #change accordingly to tests
 
     memory = MultiAgentReplayBuffer(REPLAY_MEMORY, critic_dims, agent_dims, n_action, NUMBER_OF_AGENTS, MEMORY_BATCH)
@@ -476,7 +473,7 @@ if __name__ == '__main__':
             #print("Total package loss", ng.statistics['package_loss'])
             #print(" ")
 
-            if (e % 3 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS and CRITIC_DOMAIN != "shortest"):
+            if (e % 1 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS and CRITIC_DOMAIN != "shortest"): # Atualizar a cada episódio em vez de a cada 3
                 #old_weights = maddpg_agents.agents[0].actor.fc1.weight.clone().detach()
                 maddpg_agents.learn(memory)
                 #new_weights = maddpg_agents.agents[0].actor.fc1.weight.clone().detach()
@@ -739,10 +736,12 @@ if __name__ == '__main__':
                         links_removed_info.append(f"Epoch {epoch}: No links removed")
             except (FileNotFoundError, json.JSONDecodeError):
                 links_removed_info.append(f"Epoch {epoch}: No links removed (file not found)")
-        
         else:
             try:
-                with open(f"{PATH_SIMULATION}/scenario4_removed_edges.json", "r") as f:
+                # Usar arquivo específico da topologia
+                scenario4_file = f"{PATH_SIMULATION}/scenario4_removed_edges_{TOPOLOGY_TYPE}.json"
+                
+                with open(scenario4_file, "r") as f:
                     edges_data = json.load(f)
                     
                     if "links_removed" in edges_data:
@@ -1257,7 +1256,10 @@ if __name__ == '__main__':
 
             # Gerar gráficos comparativos apenas quando for o cenário shortest_shortest
             # Este deve ser o último cenário a ser executado para cada configuração
-            if CRITIC_DOMAIN == "shortest" and NEURAL_NETWORK == "shortest":
+            if (CRITIC_DOMAIN == "shortest" and NEURAL_NETWORK == "shortest") and USE_GNN == False:
+                print(f"Gerando gráficos comparativos para {TOPOLOGY_TYPE} na pasta {gnn_suffix}/comparisons")
+                create_comparison_graphs(TOPOLOGY_TYPE)
+            elif (CRITIC_DOMAIN == "local_critic" and NEURAL_NETWORK == "duelling_q_network") and USE_GNN == False:
                 print(f"Gerando gráficos comparativos para {TOPOLOGY_TYPE} na pasta {gnn_suffix}/comparisons")
                 create_comparison_graphs(TOPOLOGY_TYPE)
             
