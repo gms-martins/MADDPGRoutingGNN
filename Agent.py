@@ -16,13 +16,28 @@ class GNNProcessor(nn.Module):
     """
     Processador GNN para transformar o estado da rede antes de enviá-lo ao agente.
     Implementa uma Graph Convolutional Network simples.
+    
+    Diferenças entre GraphConv e GCNConv:
+    - GraphConv: Mais flexível, usa diferentes pesos para o nó central e vizinhos.
+      Formula: x_i = Σ(j ∈ N(i)) 1/sqrt(|N(i)|*|N(j)|) * (W1*x_i + W2*x_j)
+    
+    - GCNConv: Implementação de Kipf & Welling (2017), normalização simétrica.
+      Formula: x_i = W * Σ(j ∈ N(i)∪{i}) 1/sqrt(|N(i)|*|N(j)|) * x_j
+      
+    - GraphConv oferece maior expressividade com seus dois conjuntos de pesos.
+    - GCNConv é mais eficiente e usa menos parâmetros (compartilha pesos).
     """
     def __init__(self, input_dim, hidden_dim, output_dim):
         super(GNNProcessor, self).__init__()
         
         # Camadas GCN
+        # Versão com GraphConv (atual)
         self.conv1 = GraphConv(input_dim, hidden_dim)
         self.conv2 = GraphConv(hidden_dim, output_dim)
+        
+        # Versão com GCNConv (alternativa)
+        # self.conv1 = GCNConv(input_dim, hidden_dim)
+        # self.conv2 = GCNConv(hidden_dim, output_dim)
         
         # Camada extra para garantir dimensionalidade correta
         #self.fc_output = nn.Linear(output_dim, output_dim)

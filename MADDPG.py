@@ -161,7 +161,7 @@ if __name__ == '__main__':
         critic_dims = [critic_dim for i in range(NUMBER_OF_AGENTS)]
     maddpg_agents = MADDPG(agent_dims, critic_dims, NUMBER_OF_AGENTS, n_action,
                            fa1=10, fa2=64, fc1=15, fc2=64,
-                           alpha=0.003, beta=0.0003, tau=0.001, chkpt_dir='.\\tmp\\maddpg\\') #valores ajustados para aprendizagem mais rápida
+                           alpha=0.002, beta=0.0002, tau=0.001, chkpt_dir='.\\tmp\\maddpg\\') #valores ajustados para aprendizagem mais rápida
     #change accordingly to tests
 
     memory = MultiAgentReplayBuffer(REPLAY_MEMORY, critic_dims, agent_dims, n_action, NUMBER_OF_AGENTS, MEMORY_BATCH)
@@ -473,7 +473,7 @@ if __name__ == '__main__':
             #print("Total package loss", ng.statistics['package_loss'])
             #print(" ")
 
-            if (e % 1 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS and CRITIC_DOMAIN != "shortest"): # Atualizar a cada episódio em vez de a cada 3
+            if (e % 3 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS and CRITIC_DOMAIN != "shortest"): # Atualizar a cada episódio em vez de a cada 3
                 #old_weights = maddpg_agents.agents[0].actor.fc1.weight.clone().detach()
                 maddpg_agents.learn(memory)
                 #new_weights = maddpg_agents.agents[0].actor.fc1.weight.clone().detach()
@@ -1256,10 +1256,13 @@ if __name__ == '__main__':
 
             # Gerar gráficos comparativos apenas quando for o cenário shortest_shortest
             # Este deve ser o último cenário a ser executado para cada configuração
+            # Para geração de gráficos, escolhemos:
+            # 1. shortest-shortest quando USE_GNN=False
+            # 2. local_critic duelling_q_network quando USE_GNN=True
             if (CRITIC_DOMAIN == "shortest" and NEURAL_NETWORK == "shortest") and USE_GNN == False:
                 print(f"Gerando gráficos comparativos para {TOPOLOGY_TYPE} na pasta {gnn_suffix}/comparisons")
                 create_comparison_graphs(TOPOLOGY_TYPE)
-            elif (CRITIC_DOMAIN == "local_critic" and NEURAL_NETWORK == "duelling_q_network") and USE_GNN == False:
+            elif (CRITIC_DOMAIN == "local_critic" and NEURAL_NETWORK == "duelling_q_network") and USE_GNN == True:
                 print(f"Gerando gráficos comparativos para {TOPOLOGY_TYPE} na pasta {gnn_suffix}/comparisons")
                 create_comparison_graphs(TOPOLOGY_TYPE)
             

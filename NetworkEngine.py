@@ -1065,7 +1065,7 @@ def generate_traffic_sequence_service_provider(network=None):
     communications = {}
     list_all_communications = []
 
-    nodes_list = ['H8', 'H13', 'H22', 'H31', 'H39', 'H48','H57','H12', 'H30', 'H21', 'H38', 'H47', 'H56', 'H65']
+    nodes_list = ['H57', 'H65', 'H2', 'H3', 'H5', 'H6', 'H9', 'H10', 'H11', 'H15', 'H16', 'H18', 'H19', 'H24']
     
     for j in range(1000):
         #random_sample = random.sample(hosts, 35)
