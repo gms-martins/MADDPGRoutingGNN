@@ -40,22 +40,21 @@ class NetworkEnv(Env):
 
         self.done = self.engine.communication_done()
 
-        rewards = []
-
+        rewards = []        
         for host in self.engine.get_all_hosts():
             reward = 0
             bw = self.engine.components[host].get_neighbors_bw()
             #print("\n bw reward: ", bw)
             if bw > 75:
-                reward += 50
+                reward += 20  #50 #50 #50 #20
             elif bw > 50:
-                reward += 30
+                reward += 50  #30 #30 #30 #50
             elif bw > 25:
-                pass
+                reward += 20  #pass #pass #10 #20
             elif bw > 0:
-                reward -= 20
+                reward -= 60  #-20 #70 #40 #60
             else:
-                reward -= 70
+                reward -= 120 #70 #100 # 100 #120
             rewards.append(reward)
 
         states = {}

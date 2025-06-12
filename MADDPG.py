@@ -473,7 +473,7 @@ if __name__ == '__main__':
             #print("Total package loss", ng.statistics['package_loss'])
             #print(" ")
 
-            if (e % 3 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS and CRITIC_DOMAIN != "shortest"): # Atualizar a cada episódio em vez de a cada 3
+            if (e % 3 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS ) and CRITIC_DOMAIN != "shortest": # Atualizar a cada episódio em vez de a cada 3
                 #old_weights = maddpg_agents.agents[0].actor.fc1.weight.clone().detach()
                 maddpg_agents.learn(memory)
                 #new_weights = maddpg_agents.agents[0].actor.fc1.weight.clone().detach()
@@ -1007,7 +1007,7 @@ if __name__ == '__main__':
                 
                 if not result_folders:
                     continue
-                    
+                
                 latest_folder = sorted(result_folders)[-1]
                 
                 # Procurar múltiplos arquivos possíveis
@@ -1115,7 +1115,7 @@ if __name__ == '__main__':
                 
                 if not result_folders:
                     continue
-                    
+                
                 latest_folder = sorted(result_folders)[-1]
                 folder_path = os.path.join(config_path, latest_folder)
                 
@@ -1201,6 +1201,130 @@ if __name__ == '__main__':
                 plt.savefig(os.path.join(comparison_folder, f"congestion_comparison_scenario{scenario_type}.png"))
                 plt.close()
                 print(f"Gráfico de congestionamento para cenário {scenario_type} criado!")
+              # 3. GRÁFICO DE PERDA DE PACOTES
+            packet_loss_data = {}
+            
+            for config in configurations:
+                config_path = os.path.join(gnn_path, config)
+                if not os.path.exists(config_path):
+                    continue
+                    
+                result_folders = [d for d in os.listdir(config_path) 
+                                if os.path.isdir(os.path.join(config_path, d)) and 
+                                    scenario_name in d]
+                
+                if not result_folders:
+                    continue
+                
+                latest_folder = sorted(result_folders)[-1]
+                folder_path = os.path.join(config_path, latest_folder)
+                
+                # Buscar o arquivo de dados do cenário - tente múltiplos padrões possíveis
+                possible_files = [
+                    # Padrão principal conforme definido na variável sub_path
+                    os.path.join(folder_path, f"{NR_EPOCHS}epo_{EPOCH_SIZE}epi_{TOPOLOGY_TYPE}_{scenario_name}.txt"),
+                    # Buscar qualquer arquivo .txt na pasta
+                    *[os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith(".txt")]
+                ]
+                
+                data_file = None
+                for possible_file in possible_files:
+                    if os.path.exists(possible_file):
+                        data_file = possible_file
+                        break
+                
+                if data_file:
+                    try:
+                        packet_loss_values = []
+                        
+                        with open(data_file, 'r') as f:
+                            lines = f.readlines()
+                            
+                            # Encontrar linhas com dados de perda de pacotes
+                            for line in lines:
+                                # Para a rede original (Época 0)
+                                if "Packets lost Original network (number):" in line:
+                                    # Extrair o valor entre : e %
+                                    value_str = line.split(":")[1].strip().replace("%", "").strip()
+                                    try:
+                                        value = float(value_str)
+                                        packet_loss_values.append(value)
+                                    except ValueError:
+                                        print(f"Erro ao converter valor: '{value_str}' para float")
+                                
+                                # Para as redes modificadas (Épocas 1+)
+                                elif "Packets lost Modified network (number)" in line:
+                                    value_str = line.split(":")[1].strip().replace("%", "").strip()
+                                    try:
+                                        value = float(value_str)
+                                        packet_loss_values.append(value)
+                                    except ValueError:
+                                        print(f"Erro ao converter valor: '{value_str}' para float")
+                                        
+                                # Tentar para o cenário de treinamento
+                                elif "Packets lost training:" in line:
+                                    value_str = line.split(":")[1].strip().replace("%", "").strip()
+                                    try:
+                                        value = float(value_str)
+                                        packet_loss_values.append(value)
+                                    except ValueError:
+                                        print(f"Erro ao converter valor: '{value_str}' para float")
+                                    
+                        if packet_loss_values:
+                            packet_loss_data[config] = packet_loss_values
+                            print(f"Encontrados {len(packet_loss_values)} valores de perda de pacotes em {data_file}")
+                            
+                    except Exception as e:
+                        print(f"Erro ao processar dados de perda de pacotes em {data_file}: {str(e)}")
+            
+            # Criar gráfico de perda de pacotes se temos dados
+            if packet_loss_data:
+                plt.figure(figsize=(14, 8))
+                
+                # Determinar número máximo de épocas por configuração
+                max_epochs = max(len(values) for values in packet_loss_data.values())
+                
+                # Criar barras agrupadas
+                bar_width = 0.2
+                x = np.arange(max_epochs)
+                
+                # Posições para as barras de cada configuração
+                positions = [-1.5*bar_width, -0.5*bar_width, 0.5*bar_width, 1.5*bar_width]
+                
+                for i, (config, values) in enumerate(packet_loss_data.items()):
+                    # Preencher com zeros se necessário
+                    full_values = values + [0] * (max_epochs - len(values))
+                    label = config.replace("_", " ").title()
+                    
+                    # Usar índice para posicionar as barras
+                    pos = positions[min(i, 3)]
+                    plt.bar(x + pos, full_values, width=bar_width, label=label, alpha=0.8)
+                
+                # Configurações do gráfico
+                plt.title(f"Perda de Pacotes por Época - Cenário {scenario_type} ({scenario_name}) - {topology_type.title()}")
+                plt.xlabel("Época")
+                plt.ylabel("Perda de Pacotes (%)")
+                
+                # Ajustar as labels do eixo X
+                if scenario_type in [2, 3]:
+                    # Para cenários 2/3, mostrar Época 0 (original) e Épocas 1+ (com falhas)
+                    epoch_labels = ["Original"] + [f"Falha {i+1}" for i in range(max_epochs-1)]
+                    plt.xticks(x, epoch_labels)
+                    
+                    # Adicionar linha vertical para separar a rede original das modificadas
+                    plt.axvline(x=0.5, color='r', linestyle='--', alpha=0.3)
+                else:
+                    plt.xticks(x, [f"Época {i}" for i in range(max_epochs)])
+                
+                plt.legend()
+                plt.grid(axis='y', linestyle='--', alpha=0.7)
+                plt.tight_layout()
+                
+                plt.savefig(os.path.join(comparison_folder, f"packet_loss_comparison_scenario{scenario_type}.png"))
+                plt.close()
+                print(f"Gráfico de perda de pacotes para cenário {scenario_type} criado com sucesso!")
+            else:
+                print(f"Nenhum dado de perda de pacotes encontrado para o cenário {scenario_type}")
         
         print(f"Gráficos comparativos salvos em {comparison_folder}")
 
@@ -1218,7 +1342,6 @@ if __name__ == '__main__':
 
         plt.plot(x, y_axis_training, label = {NEURAL_NETWORK})
         plt.legend()
-        
         plt.savefig(f"{folder_path}/{sub_path}.png")
 
         data_total_df = pd.DataFrame({
@@ -1226,8 +1349,14 @@ if __name__ == '__main__':
             'Average_Reward': [f"{value:.3f}" for value in y_axis_training]
         })
         data_total_df.to_csv(f"{folder_path}/data_total.csv", index=False,sep=';', decimal='.')
-        
         plt.close()
+        
+        # Se for o algoritmo shortest-shortest, gerar apenas o overall
+        ##if CRITIC_DOMAIN == "shortest" and NEURAL_NETWORK == "shortest":
+            ##print("Gerando apenas visualização geral de links para shortest-shortest...")
+            # Gerar apenas visualização global para todo o treinamento
+            ##visualize_link_utilization(link_utilization_history, folder_path, all_epochs=True)
+
     elif EVALUATE:
         if not TRAIN:
             process_evaluation_results(link_utilization_history, graph_y_axis, nr_epochs, folder_path, sub_path)
@@ -1265,7 +1394,7 @@ if __name__ == '__main__':
             elif (CRITIC_DOMAIN == "local_critic" and NEURAL_NETWORK == "duelling_q_network") and USE_GNN == True:
                 print(f"Gerando gráficos comparativos para {TOPOLOGY_TYPE} na pasta {gnn_suffix}/comparisons")
                 create_comparison_graphs(TOPOLOGY_TYPE)
-            
+
 
 
 

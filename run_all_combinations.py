@@ -10,8 +10,8 @@ script_path = os.path.join(script_dir, "MADDPG.py")
 
 # Configurações de topologias com seus respectivos parâmetros
 topology_configs = [
-    ("internet", 25, 25, 11),
-    ("arpanet", 33, 33, 6),
+    #("internet", 25, 25, 11),
+    #("arpanet", 33, 33, 6),
     ("service_provider", 65, 65, 4)
 ]
 
@@ -21,6 +21,7 @@ train_configs = [
     ("central_critic", "simple_q_network"),
     ("local_critic", "duelling_q_network"),
     ("shortest", "shortest")
+    
 ]
 
 test_scenarios = [
@@ -73,8 +74,8 @@ for use_gnn in [False, True]: # True para usar GNN
 NR_ACTIVE_CONNECTIONS = 10
 NUMBER_OF_PATHS = 3
 
-NR_EPOCHS = 2
-EPOCH_SIZE = 2
+NR_EPOCHS = 5
+EPOCH_SIZE = 5
 
 NOTES = ""
 PATH_SIMULATION = "{script_dir}"
