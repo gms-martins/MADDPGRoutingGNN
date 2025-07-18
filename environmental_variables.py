@@ -2,12 +2,12 @@
 NR_ACTIVE_CONNECTIONS = 10
 NUMBER_OF_PATHS = 3
 
-NR_EPOCHS = 2
-EPOCH_SIZE = 2
+NR_EPOCHS = 10
+EPOCH_SIZE = 10
 
 NOTES = ""
 PATH_SIMULATION = "c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates"
-SIM_NR = "20250522_103756_local_critic_duelling_q_network"
+SIM_NR = "20250612_134604_local_critic_duelling_q_network"
 
 
 INCREASE_BANDWIDTH_INTERVAL = 3
@@ -29,5 +29,5 @@ TRAIN = False
 
 MODIFIED_NETWORK = "remove_edges"
 
-# Controla se a GNN é usada ou não
+# Controla se a GNN ï¿½ usada ou nï¿½o
 USE_GNN = False

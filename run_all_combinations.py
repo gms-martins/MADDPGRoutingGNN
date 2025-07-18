@@ -17,11 +17,10 @@ topology_configs = [
 
 # Combinações de treino
 train_configs = [
-    ("central_critic", "duelling_q_network"),
-    ("central_critic", "simple_q_network"),
+    #("central_critic", "duelling_q_network"),
+    #("central_critic", "simple_q_network"),
     ("local_critic", "duelling_q_network"),
     ("shortest", "shortest")
-    
 ]
 
 test_scenarios = [
@@ -37,7 +36,7 @@ timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 # Primeiro executa todas as configurações sem GNN (original)
-for use_gnn in [False, True]: # True para usar GNN
+for use_gnn in [False]: # True para usar GNN
     gnn_status = "COM GNN" if use_gnn else "SEM GNN (ORIGINAL)"
     print(f"\n\n{'=' * 60}")
     print(f"INICIANDO EXECUÇÕES {gnn_status}")
@@ -83,10 +82,10 @@ SIM_NR = "{timestamp_with_gnn}"
 
 
 INCREASE_BANDWIDTH_INTERVAL = 3
-BANDWIDTH_INCREASE_FACTOR = 1.4
-MAX_BANDWIDTH_MULTIPLIER = 2.0
+BANDWIDTH_INCREASE_FACTOR = 4
+MAX_BANDWIDTH_MULTIPLIER = 4
 STABILIZE_BANDWIDTH = True
-STABILIZE_AFTER_MULTIPLIER = 1.75  
+STABILIZE_AFTER_MULTIPLIER = 4
 SAVE_REMOVED_LINKS_SCENARIO4 = True
 
 TOPOLOGY_TYPE = "{topology}"; NUMBER_OF_HOSTS = {number_of_hosts}; NUMBER_OF_AGENTS = {number_of_agents}; NR_MAX_LINKS = {nr_max_links}
