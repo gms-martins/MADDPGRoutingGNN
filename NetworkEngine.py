@@ -17,16 +17,16 @@ import csv
 
 from Link import Link
 from NetworkComponent import NetworkComponent
-from environmental_variables import EPOCH_SIZE, STATE_SIZE, NR_MAX_LINKS, EVALUATE,UPDATE_WEIGHTS, MODIFIED_NETWORK, NUMBER_OF_PATHS, TOPOLOGY_TYPE, TRAIN , PATH_SIMULATION, MAX_BANDWIDTH_MULTIPLIER,BANDWIDTH_INCREASE_FACTOR,SAVE_REMOVED_LINKS_SCENARIO4, STABILIZE_BANDWIDTH, STABILIZE_AFTER_MULTIPLIER, INCREASE_BANDWIDTH_INTERVAL, NR_ACTIVE_CONNECTIONS, CRITIC_DOMAIN, NEURAL_NETWORK, USE_GNN, NUM_LINKS_TO_REMOVE
+from environmental_variables import EPOCH_SIZE, STATE_SIZE, NR_MAX_LINKS, EVALUATE,UPDATE_WEIGHTS, MODIFIED_NETWORK, NUMBER_OF_PATHS, TOPOLOGY_TYPE, TRAIN , PATH_SIMULATION, MAX_BANDWIDTH_MULTIPLIER,BANDWIDTH_INCREASE_FACTOR,SAVE_REMOVED_LINKS_SCENARIO4, STABILIZE_BANDWIDTH, STABILIZE_AFTER_MULTIPLIER, INCREASE_BANDWIDTH_INTERVAL, NR_ACTIVE_CONNECTIONS, CRITIC_DOMAIN, NEURAL_NETWORK, USE_GNN , NUM_LINKS_TO_REMOVE
 
-REMOVED_EDGES = {1: None, 2: None, 3: None}  # Armazenar links removidos por época
-SCENARIO_2_COMPLETED = False  # Flag para identificar quando o cenário 2 foi executado
+REMOVED_EDGES = {1: None, 2: None, 3: None}  
+SCENARIO_2_COMPLETED = False  
 
 class NetworkEngine:
 
     def __init__(self):
         self.graph_has_data = False
-
+        
         # Choose the topology
         if TOPOLOGY_TYPE == "service_provider":
             self.set_service_provider_topology()
@@ -300,10 +300,13 @@ class NetworkEngine:
     def simulate_communication(self, src, dst, path_chosen, bw, nr_turns):
         a = path_chosen
         b = len(self.paths[(src, dst)])
-    
+        
         if path_chosen >= len(self.paths[(src, dst)]) or path_chosen is None:
             path_chosen = 0
+
         path = self.paths[(src, dst)][path_chosen]
+        # Registar o caminho usado
+        
         self.update_bw_path(path, bw)
         self.components[src].set_communication(nr_turns, bw, dst)
 
@@ -345,7 +348,6 @@ class NetworkEngine:
                 link.add_active_communication(origin, destiny, bw)
 
             if link.bw_available < 0 and not update_bw: 
-
                 absolute_loss = -1 * link.bw_available
 
                 if link.bw_total > 0:
@@ -359,14 +361,14 @@ class NetworkEngine:
                 bw = max(1, bw)
 
         if not update_bw:
-
+            
             total_capacity = sum(link.bw_total for link in self.links.values())
 
             if total_capacity > 0:
                 normalized_sent = (bw / total_capacity) * 100
             else:
                 normalized_sent = 0  # Se não há capacidade total, sent normalizada = 0
-            
+
             self.statistics["package_sent"] += bw
             self.statistics["nr_package_sent"] += 1
             c = self.components[origin]
@@ -654,322 +656,120 @@ class NetworkEngine:
             self.graph_topology.add_edge(u, v, bw = 100)
         
         self.setup()
-   
+    
     def remove_topology_edges(self, mod):
         global REMOVED_EDGES, SCENARIO_2_COMPLETED
-        
-        scenario2_file = f"{PATH_SIMULATION}/scenario2_removed_edges_{TOPOLOGY_TYPE}.json"
-        scenario3_file = f"{PATH_SIMULATION}/scenario3_removed_edges_{TOPOLOGY_TYPE}.json"
-        current_topology = TOPOLOGY_TYPE
-        
-        # Definir quantos links serão alterados em cada modificação baseado na variável
-        # Agora remove NUM_LINKS_TO_REMOVE links cumulativamente
-        if mod == 1:
-            nr_links_changed = min(NUM_LINKS_TO_REMOVE, 1)  # Remove 1º link
-        elif mod == 2:
-            nr_links_changed = min(NUM_LINKS_TO_REMOVE - 1, 1) if NUM_LINKS_TO_REMOVE > 1 else 0  # Remove 2º link se necessário
-        elif mod == 3:
-            nr_links_changed = min(NUM_LINKS_TO_REMOVE - 2, 1) if NUM_LINKS_TO_REMOVE > 2 else 0  # Remove 3º link se necessário 
 
+        # Usar o mesmo arquivo para cenários 2 e 3
+        scenario_file = f"{PATH_SIMULATION}/scenario2and3_{NUM_LINKS_TO_REMOVE}links_removed_edges_{TOPOLOGY_TYPE}.json"
+        scenario_name = f"Cenário 2/3 ({NUM_LINKS_TO_REMOVE} links)"
+        current_topology = TOPOLOGY_TYPE
+
+        print(f"[{scenario_name}] Mod {mod}")
+
+        # Só remove links na primeira época
+        if mod != 1:
+            print(f"  → Nenhum link para remover (já removidos na época 1)")
+            return
+
+        nr_links_changed = NUM_LINKS_TO_REMOVE
+
+        # Selecionar edges candidatos (apenas links ativos)
         edges = []
-        change = []
-        
-        # Preencher a lista de edges candidatos
         for n1, n2, data in self.graph_topology.edges(data=True):
             if self.graph_topology.degree(n1) > 1 and self.graph_topology.degree(n2) > 1:
                 if 'bw' in data and data['bw'] == 0:
                     continue
-                edges.append((n1,n2))
+                edges.append((n1, n2))
 
-        # Cenário 2: sem atualização de pesos - usar links 4º, 5º e 6º mais críticos
-        if EVALUATE and not TRAIN and not UPDATE_WEIGHTS:
-            # Verificar se já temos links salvos para este cenário
-            if mod == 1 and os.path.exists(scenario2_file):
-                try:
-                    with open(scenario2_file, 'r') as f:
-                        edges_data = json.load(f)
-                        
-                        # Se arquivo tem informações válidas para a topologia atual
-                        if "topology" in edges_data and edges_data["topology"] == current_topology:
-                            print(f"Reutilizando links removidos da topologia {current_topology} para cenário 2")
-                            
-                            # Carregar links salvos anteriormente, apenas até NUM_LINKS_TO_REMOVE
-                            REMOVED_EDGES = {}
-                            for i in range(NUM_LINKS_TO_REMOVE):
-                                key = str(i + 1)
-                                if key in edges_data:
-                                    REMOVED_EDGES[i + 1] = [tuple(e) for e in edges_data[key]]
-                            SCENARIO_2_COMPLETED = True
-                except:
-                    print("Erro ao carregar arquivo de links removidos para cenário 2")
-            
-            # Se ainda não temos links determinados, identificar os links críticos para Shortest Path
-            if not SCENARIO_2_COMPLETED:
-                print("Identificando links críticos para o algoritmo Shortest Path...")
-                
-                # Análise de uso de links em caminhos mais curtos
-                link_usage = {}
-                all_hosts = self.get_all_hosts()
-                
-                # Analisar TODOS os pares de hosts
-                for i, src in enumerate(all_hosts):
-                    for dst in all_hosts:
-                        if src != dst:
-                            paths = self.get_paths(src, dst)
-                            if paths and len(paths) > 0:
-                                # Analisar apenas o caminho mais curto
-                                shortest_path = paths[0]
-                                
-                                # Contar uso de cada link neste caminho
-                                for j in range(len(shortest_path) - 1):
-                                    u = shortest_path[j]
-                                    v = shortest_path[j+1]
-                                    
-                                    # Converter nomes de hosts para índices
-                                    if u.startswith('H'):
-                                        u_idx = int(u[1:]) - 1
-                                    else:  # Switches
-                                        u_idx = int(u[1:]) + self.number_of_hosts - 1
-                                    
-                                    if v.startswith('H'):
-                                        v_idx = int(v[1:]) - 1
-                                    else:  # Switches
-                                        v_idx = int(v[1:]) + self.number_of_hosts - 1
-                                    
-                                    # Normalizar a ordem do link
-                                    link = (min(u_idx, v_idx), max(u_idx, v_idx))
-                                    
-                                    # Incrementar contagem
-                                    if link in link_usage:
-                                        link_usage[link] += 1
-                                    else:
-                                        link_usage[link] = 1
-                
-                # Ordenar links por frequência de uso (do mais usado ao menos usado)
-                sorted_links = sorted(link_usage.items(), key=lambda x: x[1], reverse=True)
-                
-                # Verificar quais links podem ser removidos sem desconectar a rede
-                valid_links = []
-                for link, count in sorted_links:
-                    # Verificar se remover este link mantém a rede conectada
+        change = []
+
+        # Verificar se já temos links salvos
+        if os.path.exists(scenario_file):
+            try:
+                with open(scenario_file, 'r') as f:
+                    edges_data = json.load(f)
+                    if "topology" in edges_data and edges_data["topology"] == current_topology:
+                        print(f"  → Reutilizando links salvos")
+                        if "links_removed" in edges_data:
+                            all_links_to_remove = [tuple(e) for e in edges_data["links_removed"]]
+                            if all_links_to_remove:
+                                change = all_links_to_remove[:nr_links_changed]
+            except Exception as e:
+                print(f"  → Erro ao carregar: {e}")
+
+        # Se não temos links, identificar críticos (mesma lógica para ambos cenários)
+        if not change:
+            print(f"  → Identificando links para remover...")
+            # Seleção simples: links mais usados e conectividade
+            all_hosts = self.get_all_hosts()
+            link_usage = {}
+            for src in all_hosts:
+                for dst in all_hosts:
+                    if src != dst:
+                        paths = self.get_paths(src, dst)
+                        if paths and len(paths) > 0:
+                            shortest_path = paths[0]
+                            for j in range(len(shortest_path) - 1):
+                                u = shortest_path[j]
+                                v = shortest_path[j+1]
+                                u_idx = int(u[1:]) - 1 if u.startswith('H') else int(u[1:]) + self.number_of_hosts - 1
+                                v_idx = int(v[1:]) - 1 if v.startswith('H') else int(v[1:]) + self.number_of_hosts - 1
+                                link = (min(u_idx, v_idx), max(u_idx, v_idx))
+                                link_usage[link] = link_usage.get(link, 0) + 1
+            sorted_links = sorted(link_usage.items(), key=lambda x: x[1], reverse=True)
+            valid_links = []
+            for link, count in sorted_links:
+                if link in edges or (link[1], link[0]) in edges:
                     self.graph_topology.remove_edge(*link)
                     if nx.is_connected(self.graph_topology):
-                        valid_links.append((link, count))
-                    # Restaurar o link para não afetar verificações futuras
+                        valid_links.append(link)
                     self.graph_topology.add_edge(*link)
-                    
-                    # Quando tivermos links suficientes, parar
-                    if len(valid_links) >= 6:  # Precisamos de pelo menos 6 links válidos
+                    if len(valid_links) >= nr_links_changed:
                         break
-                
-                # Para o cenário 2, selecionar links baseado em NUM_LINKS_TO_REMOVE
-                if len(valid_links) >= max(NUM_LINKS_TO_REMOVE, 3):
-                    # Definir links para o cenário 2 baseado em NUM_LINKS_TO_REMOVE
-                    # Se NUM_LINKS_TO_REMOVE = 1: usa apenas o 4º link
-                    # Se NUM_LINKS_TO_REMOVE = 2: usa 4º e 5º links
-                    # Se NUM_LINKS_TO_REMOVE = 3: usa 4º, 5º e 6º links
-                    start_index = 3  # Começar do 4º link mais crítico (índice 3)
-                    REMOVED_EDGES = {}
-                    
-                    for i in range(NUM_LINKS_TO_REMOVE):
-                        REMOVED_EDGES[i + 1] = [valid_links[start_index + i][0]]
-                    
-                    print(f"Links selecionados para cenário 2 ({NUM_LINKS_TO_REMOVE} links):")
-                    for i in range(NUM_LINKS_TO_REMOVE):
-                        print(f"Mod {i + 1}: {REMOVED_EDGES[i + 1]}")
-                else:
-                    # Fallback: selecionar links aleatórios se não tivermos links suficientes
-                    print(f"Não há links críticos suficientes. Usando seleção aleatória para {NUM_LINKS_TO_REMOVE} links.")
-                    REMOVED_EDGES = {}
-                    selected_links = random.sample(edges, min(NUM_LINKS_TO_REMOVE, len(edges)))
-                    
-                    for i in range(NUM_LINKS_TO_REMOVE):
-                        REMOVED_EDGES[i + 1] = [selected_links[i]]
-                
-                SCENARIO_2_COMPLETED = True
-                
-                # Salvar links para uso futuro
-                edges_data = {"topology": current_topology}
-                
-                for i in range(NUM_LINKS_TO_REMOVE):
-                    edges_data[str(i + 1)] = [[e[0], e[1]] for e in REMOVED_EDGES[i + 1]]
-                
-                with open(scenario2_file, 'w') as f:
-                    json.dump(edges_data, f, indent=4)
-                    print(f"Links críticos salvos em {scenario2_file}")
-            
-            # Usar os links determinados para esta modificação
-            if SCENARIO_2_COMPLETED and mod in REMOVED_EDGES and REMOVED_EDGES[mod]:
-                change = REMOVED_EDGES[mod]
-                print(f"Removendo link menos crítico {mod}/3 para cenário 2: {change}")
+            if len(valid_links) >= nr_links_changed:
+                change = valid_links[:nr_links_changed]
             else:
-                # Fallback para seleção aleatória
                 change = random.sample(edges, min(nr_links_changed, len(edges)))
-                REMOVED_EDGES[mod] = change
-                print(f"Fallback: Seleção aleatória para mod {mod}: {change}")
-        
-        # Cenário 3: com atualização de pesos - usar links 1º, 2º e 3º mais críticos
-        elif EVALUATE and not TRAIN and UPDATE_WEIGHTS:
-            # Verificar se já temos links salvos para este cenário
-            if mod == 1 and os.path.exists(scenario3_file):
-                try:
-                    with open(scenario3_file, 'r') as f:
-                        edges_data = json.load(f)
-                        
-                        # Se arquivo tem informações válidas para a topologia atual
-                        if "topology" in edges_data and edges_data["topology"] == current_topology:
-                            print(f"Reutilizando links removidos da topologia {current_topology} para cenário 3")
-                            
-                            # Carregar links salvos anteriormente, apenas até NUM_LINKS_TO_REMOVE
-                            REMOVED_EDGES = {}
-                            for i in range(NUM_LINKS_TO_REMOVE):
-                                key = str(i + 1)
-                                if key in edges_data:
-                                    REMOVED_EDGES[i + 1] = [tuple(e) for e in edges_data[key]]
-                            global SCENARIO_3_COMPLETED
-                            if 'SCENARIO_3_COMPLETED' not in globals():
-                                SCENARIO_3_COMPLETED = False
-                            SCENARIO_3_COMPLETED = True
-                except:
-                    print("Erro ao carregar arquivo de links removidos para cenário 3")
-            
-            # Se não temos links determinados, identificar os links mais críticos para o cenário 3
-            if not ('SCENARIO_3_COMPLETED' in globals() and SCENARIO_3_COMPLETED):
-                print(f"Identificando links MAIS críticos (top {NUM_LINKS_TO_REMOVE}) para o cenário 3...")
-                
-                # Análise de uso de links em caminhos mais curtos
-                link_usage = {}
-                all_hosts = self.get_all_hosts()
-                
-                # Analisar TODOS os pares de hosts
-                for i, src in enumerate(all_hosts):
-                    for dst in all_hosts:
-                        if src != dst:
-                            paths = self.get_paths(src, dst)
-                            if paths and len(paths) > 0:
-                                # Analisar apenas o caminho mais curto
-                                shortest_path = paths[0]
-                                
-                                # Contar uso de cada link neste caminho
-                                for j in range(len(shortest_path) - 1):
-                                    u = shortest_path[j]
-                                    v = shortest_path[j+1]
-                                    
-                                    # Converter nomes de hosts para índices
-                                    if u.startswith('H'):
-                                        u_idx = int(u[1:]) - 1
-                                    else:  # Switches
-                                        u_idx = int(u[1:]) + self.number_of_hosts - 1
-                                    
-                                    if v.startswith('H'):
-                                        v_idx = int(v[1:]) - 1
-                                    else:  # Switches
-                                        v_idx = int(v[1:]) + self.number_of_hosts - 1
-                                    
-                                    # Normalizar a ordem do link
-                                    link = (min(u_idx, v_idx), max(u_idx, v_idx))
-                                    
-                                    # Incrementar contagem
-                                    if link in link_usage:
-                                        link_usage[link] += 1
-                                    else:
-                                        link_usage[link] = 1
-                
-                # Ordenar links por frequência de uso (do mais usado ao menos usado)
-                sorted_links = sorted(link_usage.items(), key=lambda x: x[1], reverse=True)
-                
-                # Verificar quais links podem ser removidos sem desconectar a rede
-                valid_links = []
-                for link, count in sorted_links:
-                    # Verificar se remover este link mantém a rede conectada
-                    self.graph_topology.remove_edge(*link)
-                    if nx.is_connected(self.graph_topology):
-                        valid_links.append((link, count))
-                    # Restaurar o link para não afetar verificações futuras
-                    self.graph_topology.add_edge(*link)
-                    
-                    # Quando tivermos links suficientes, parar
-                    if len(valid_links) >= NUM_LINKS_TO_REMOVE:  # Precisamos de pelo menos NUM_LINKS_TO_REMOVE links válidos
-                        break
-                
-                if len(valid_links) >= NUM_LINKS_TO_REMOVE:
-                    # Para o cenário 3, usar os links mais críticos baseado em NUM_LINKS_TO_REMOVE
-                    REMOVED_EDGES = {}
-                    
-                    for i in range(NUM_LINKS_TO_REMOVE):
-                        REMOVED_EDGES[i + 1] = [valid_links[i][0]]  # Do 1º link mais crítico em diante
-                    
-                    print(f"Links mais críticos selecionados para cenário 3 ({NUM_LINKS_TO_REMOVE} links):")
-                    for i in range(NUM_LINKS_TO_REMOVE):
-                        print(f"Mod {i + 1}: {REMOVED_EDGES[i + 1]} ({i + 1}º mais usado)")
-                else:
-                    # Fallback: selecionar links aleatórios se não tivermos links suficientes
-                    print(f"Não há links críticos suficientes. Usando seleção aleatória para {NUM_LINKS_TO_REMOVE} links.")
-                    REMOVED_EDGES = {}
-                    selected_links = random.sample(edges, min(NUM_LINKS_TO_REMOVE, len(edges)))
-                    
-                    for i in range(NUM_LINKS_TO_REMOVE):
-                        REMOVED_EDGES[i + 1] = [selected_links[i]]
-                
-                if 'SCENARIO_3_COMPLETED' not in globals():
-                    SCENARIO_3_COMPLETED = False
-                SCENARIO_3_COMPLETED = True
-                
-                # Salvar links para uso futuro
-                edges_data = {"topology": current_topology}
-                
-                for i in range(NUM_LINKS_TO_REMOVE):
-                    edges_data[str(i + 1)] = [[e[0], e[1]] for e in REMOVED_EDGES[i + 1]]
-                
-                with open(scenario3_file, 'w') as f:
-                    json.dump(edges_data, f, indent=4)
-                    print(f"Links mais críticos salvos em {scenario3_file}")
-            
-            # Usar os links determinados para esta modificação
-            if 'SCENARIO_3_COMPLETED' in globals() and SCENARIO_3_COMPLETED and mod in REMOVED_EDGES and REMOVED_EDGES[mod]:
-                change = REMOVED_EDGES[mod]
-                print(f"Removendo link crítico {mod}/{NUM_LINKS_TO_REMOVE} para cenário 3: {change}")
-            else:
-                # Fallback para seleção aleatória
-                change = random.sample(edges, min(nr_links_changed, len(edges)))
-                REMOVED_EDGES[mod] = change
-                print(f"Fallback: Seleção aleatória para cenário 3, mod {mod}: {change}")
-        
-        # Outros casos (não avaliação)
-        else:
-            change = random.sample(edges, min(nr_links_changed, len(edges)))
-        
+            # Salvar
+            from datetime import datetime
+            edges_data = {
+                "topology": current_topology,
+                "scenario": "Cenário 2/3",
+                "num_links_removed": nr_links_changed,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "links_removed": [list(link) for link in change]
+            }
+            with open(scenario_file, 'w') as f:
+                json.dump(edges_data, f, indent=4)
+
         # Remover os links selecionados
-        for edge in change:
-            u, v = edge
-            # Converter índices em nomes de hosts para exibição
-            host_u = f"H{u + 1}" if u < self.number_of_hosts else f"S{u - self.number_of_hosts + 1}"
-            host_v = f"H{v + 1}" if v < self.number_of_hosts else f"S{v - self.number_of_hosts + 1}"
-            
-            print("changing edge: ", edge)
-            print(f"Corresponding links: {host_u} <-> {host_v}")
-            
-            self.graph_topology.remove_edge(*edge)
-            self.graph_topology.add_edge(u, v, bw = 0)
-        
-        # Reconfigurar a rede após as alterações
+        if change:
+            print(f"  → Removendo {len(change)} links:")
+            for edge in change:
+                u, v = edge
+                host_u = f"H{u + 1}" if u < self.number_of_hosts else f"S{u - self.number_of_hosts + 1}"
+                host_v = f"H{v + 1}" if v < self.number_of_hosts else f"S{v - self.number_of_hosts + 1}"
+                print(f"    {host_u} <-> {host_v}")
+                self.graph_topology.remove_edge(*edge)
+                self.graph_topology.add_edge(u, v, bw=0)
+
+        # Reconfigurar a rede
         self.setup()
+
+        # Recarregar matrizes de tráfego
         if TOPOLOGY_TYPE == "internet":
             self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_internet_test.json", mode="r"))
-        if TOPOLOGY_TYPE == "arpanet":
+        elif TOPOLOGY_TYPE == "arpanet":
             self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_arpanet_test.json", mode="r"))
-        if TOPOLOGY_TYPE == "service_provider":
+        elif TOPOLOGY_TYPE == "service_provider":
             self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_service_provider_test.json", mode="r"))
-        self.current_index = 0
-        self.current_tm_index = self.current_index % len(self.all_tms)       
-        self.communication_sequences = self.all_tms[self.current_tm_index]
-        
-        # Salvar links removidos ao final do cenário
-        if (EVALUATE and not TRAIN and not UPDATE_WEIGHTS and mod == 3) or \
-        (EVALUATE and not TRAIN and UPDATE_WEIGHTS and mod == 3):
-            save_removed_edges(REMOVED_EDGES, True)
-    
 
+        self.current_index = 0
+        self.current_tm_index = self.current_index % len(self.all_tms)
+        self.communication_sequences = self.all_tms[self.current_tm_index]
+    
+    
     def add_topology_edges(self, mod): 
 
         # Advanced edge addition with traffic matrix update:
@@ -1067,7 +867,7 @@ class NetworkEngine:
         self.components = {}
         self.paths = {}
         self.bws = {}
-
+        
         self.communication_sequences = {'H8': ['H31', 'H40', 'H4', 'H1', 'H46', 'H29', 'H3', 'H64', 'H30', 'H56', 'H28', 'H55', 'H14', 'H55', 'H4', 'H11', 'H35', 'H38', 'H22', 'H58', 'H5', '', 'H32', 'H64', 'H14', 'H50', 'H28', 'H59', '', ''], 
                                         'H13': ['H29', 'H65', 'H53', 'H42', 'H42', 'H42', '', 'H21', 'H21', 'H51', 'H32', 'H44', 'H9', 'H28', 'H65', 'H5', 'H44', 'H55', 'H20', 'H64', 'H18', 'H29', 'H33', 'H5', 'H35', 'H23', 'H59', 'H27', 'H37', 'H57'], 
                                         'H22': ['H50', 'H38', 'H64', 'H54', 'H54', 'H29', 'H63', '', 'H46', 'H47', 'H34', 'H47', 'H3', 'H8', 'H5', 'H25', 'H12', '', 'H18', 'H56', 'H6', 'H26', 'H49', 'H12', 'H13', 'H38', 'H9', 'H36', 'H58', 'H60'], 
@@ -1142,7 +942,6 @@ class NetworkEngine:
         return self.graph_topology
     
     def calculate_convergence(rewards, failure_point, window, threshold):
-
         
         # Iniciar do ponto após a falha
         start_idx = failure_point
@@ -1175,7 +974,7 @@ class NetworkEngine:
                         # Se afastou demais da referência, reset da convergência
                         convergence_point = None
                         reference_avg = None
-                        
+        
         if convergence_point is not None:
             return str(convergence_point)
         else:
@@ -1215,6 +1014,7 @@ class NetworkEngine:
         top_communicating_pairs = []
         
         nodes_list = ['H57', 'H65', 'H2', 'H3', 'H5', 'H6', 'H9', 'H10', 'H11', 'H15', 'H16', 'H18', 'H19', 'H24']
+    
         from collections import Counter
         host_counter = Counter()
         for src in nodes_list:
@@ -1248,6 +1048,7 @@ class NetworkEngine:
         }
 
     
+
 def generate_traffic_sequence(network=None):
     if not network:
       network = NetworkEngine()
@@ -1366,6 +1167,9 @@ def load_removed_edges():
         return removed_edges, scenario_completed
     except:
         print("[WARNING] Failed to load removed edges or scenario completion status.")
+
+
+
 
 
         

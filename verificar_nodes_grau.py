@@ -1,6 +1,7 @@
 import pickle
 import os
 import networkx as nx
+import matplotlib.pyplot as plt  # Acrescenta esta linha
 
 # Define o caminho da simulação
 PATH_SIMULATION = os.path.dirname(os.path.abspath(__file__))
@@ -72,5 +73,30 @@ with open(resultado_file, "w") as f:
     print_and_write("\nSugestão de nós transmissores (nós de extremidade):", f)
     suggested_transmitters = edge_nodes[:len(nodes_list)]  # Mesmo número que a lista atual
     print_and_write(str(suggested_transmitters), f)
+
+    plt.figure(figsize=(12, 10))
+    node_colors = []
+    for node in graph_topology.nodes():
+        node_name = f"H{node + 1}"
+        if node_name in edge_nodes:
+            if node_name in nodes_list:
+                node_colors.append('red')      # Nó de extremidade e transmissor
+            else:
+                node_colors.append('orange')   # Só nó de extremidade
+        elif node_name in nodes_list:
+            node_colors.append('green')        # Só transmissor
+        else:
+            node_colors.append('skyblue')      # Restantes
+
+    pos = nx.spring_layout(graph_topology, seed=42)
+    nx.draw(graph_topology, pos, with_labels=True, labels={n: f"H{n+1}" for n in graph_topology.nodes()},
+            node_color=node_colors, node_size=500, font_size=10)
+    plt.title("Topologia Service Provider\nVermelho: extremidade+transmissor, Laranja: extremidade, Verde: transmissor")
+    plt.tight_layout()
+    img_path = os.path.join(PATH_SIMULATION, "service_provider_extremidades.png")
+    plt.savefig(img_path)
+    plt.close()
+    print_and_write(f"\nImagem da topologia gerada em: {img_path}", f)
+  
 
 print(f"\nAnálise concluída! Resultados salvos em: {resultado_file}")

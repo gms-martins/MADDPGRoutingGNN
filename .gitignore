@@ -2,13 +2,14 @@
 /__pycache__
 /agent_files
 /results
+/results3
 /comparisons_1
 /comparisons_123
-/docker-compose.yml
+/docker-compose
+/gerar_matrizes_trafego.py
 /Dockerfile
 /garficos.py
 /links_dis.py
 /requirements.txt
 /verificar_nodes_grau.py
 /visualize_topologies.py
-/gerar_matrizes_trafego.py

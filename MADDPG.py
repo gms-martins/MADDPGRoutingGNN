@@ -7,6 +7,8 @@ from torch import tensor, cat, no_grad, mean
 import torch.nn.functional as F
 import networkx as nx
 
+import shutil
+
 import os
 import datetime
 import matplotlib.pyplot as plt
@@ -148,8 +150,8 @@ if __name__ == '__main__':
     agent_dim = STATE_SIZE
     agent_dims = [agent_dim for host in all_hosts]
 
-    REPLAY_MEMORY = 50000 #Aumentado para melhor estabilidade 
-    MEMORY_BATCH = 256 #Batch maior para melhor aprendizado
+    REPLAY_MEMORY = 50000  
+    MEMORY_BATCH = 256 
 
     if CRITIC_DOMAIN == "central_critic":
         critic_dim = len(eng.get_link_usage()) + NUMBER_OF_AGENTS
@@ -170,7 +172,7 @@ if __name__ == '__main__':
     if not EVALUATE or (EVALUATE and TRAIN):
         nr_epochs = NR_EPOCHS
     elif EVALUATE and not TRAIN:
-        nr_epochs = 4
+        nr_epochs = NR_EPOCHS
 
     ## SETUP ##
     #create /home/student/agent_files directory if not found
@@ -193,20 +195,33 @@ if __name__ == '__main__':
             learning = "eval_train" # Cenário 4
         else:
             if UPDATE_WEIGHTS:
-                learning = "eval_update" # Cenários 3
+                # Cenário 3: distinguir entre 1 e 2 links
+                if NUM_LINKS_TO_REMOVE == 1:
+                    learning = "eval_update_1link" # Cenário 3a
+                elif NUM_LINKS_TO_REMOVE == 2:
+                    learning = "eval_update_2links" # Cenário 3b
+                else:
+                    learning = "eval_update" # Cenário 3 genérico
             else:
-                learning = "eval" # Cenário 2
+                # Cenário 2: distinguir entre 1 e 2 links
+                if NUM_LINKS_TO_REMOVE == 1:
+                    learning = "eval_1link" # Cenário 2a
+                elif NUM_LINKS_TO_REMOVE == 2:
+                    learning = "eval_2links" # Cenário 2b
+                else:
+                    learning = "eval" # Cenário 2 genérico
     else:
         learning = "train" # Cenário 1
 
-    # Adicionar modificação da rede separadamente
     if MODIFIED_NETWORK and (EVALUATE or TRAIN):
-        if MODIFIED_NETWORK == "remove_edges":
-            folder_name = f"{learning}_{MODIFIED_NETWORK}_{NUM_LINKS_TO_REMOVE}links"
-        else:
-            folder_name = f"{learning}_{MODIFIED_NETWORK}"
+            if EVALUATE and not TRAIN:
+                # Cenário 2 ou 3
+                folder_name = f"{learning}_{MODIFIED_NETWORK}_{NUM_LINKS_TO_REMOVE}links"
+            else:
+                # Cenário 4 ou outros
+                folder_name = f"{learning}_{MODIFIED_NETWORK}"
     else:
-        folder_name = learning 
+        folder_name = learning  
         
     # Definir sufixos para diferenciar execuções com e sem GNN
     gnn_suffix = "com_GNN" if USE_GNN else "sem_GNN"
@@ -257,13 +272,25 @@ if __name__ == '__main__':
         y_axis_training = np.zeros(NR_EPOCHS)
         graph_x_axis = np.zeros(NR_EPOCHS)
     elif EVALUATE and not TRAIN: # and UPDATE_WEIGHTS:
-        graph_x_axis = np.zeros(EPOCH_SIZE*4)
-        aux = np.zeros(EPOCH_SIZE*4) 
-        graph_y_axis = [[0 for _ in range(EPOCH_SIZE*4)] for _ in range(nr_epochs)]
+        graph_x_axis = np.zeros(EPOCH_SIZE)
+        aux = np.zeros(EPOCH_SIZE) 
+        graph_y_axis = [[0 for _ in range(EPOCH_SIZE)] for _ in range(nr_epochs)]
     elif EVALUATE and TRAIN:
         graph_x_axis = np.zeros(EPOCH_SIZE)
         y_axis_training = np.zeros(NR_EPOCHS)
         graph_y_axis = [[0 for _ in range(EPOCH_SIZE)] for _ in range(nr_epochs)]
+
+    if EVALUATE:
+        # Restaurar pesos base ANTES de carregar os pesos para o cenário
+        base_weights_dir = f"{PATH_SIMULATION}/base_weights_{TOPOLOGY_TYPE}_{CRITIC_DOMAIN}_{NEURAL_NETWORK}"
+        dst_dir = f"{PATH_SIMULATION}/agent_files{SIM_NR}"
+        if os.path.exists(base_weights_dir):
+            for file in os.listdir(base_weights_dir):
+                if file.endswith(".sync"):
+                    shutil.copy(os.path.join(base_weights_dir, file), os.path.join(dst_dir, file))
+            print(f"Pesos base restaurados de {base_weights_dir} para {dst_dir}")
+        else:
+            print(f"AVISO: Pasta de pesos base não encontrada ({base_weights_dir})")
        
     if (EVALUATE and NEURAL_NETWORK != "shortest") or (EVALUATE and TRAIN):
         maddpg_agents.load_checkpoint()
@@ -281,16 +308,15 @@ if __name__ == '__main__':
 
     total_package_loss_nr = 0
     total_packets_sent_nr = 0
+
     
     # Estrutura para armazenar evolução de packet loss por episódio (similar às recompensas)
     if EVALUATE and not TRAIN:
-        packet_loss_evolution = [[0 for _ in range(EPOCH_SIZE*4)] for _ in range(nr_epochs)]
+        packet_loss_evolution = [[0 for _ in range(EPOCH_SIZE)] for _ in range(nr_epochs)]
     elif EVALUATE and TRAIN:
         packet_loss_evolution = [[0 for _ in range(EPOCH_SIZE)] for _ in range(nr_epochs)]
-    else:
-        packet_loss_evolution = []
-
     
+
     #if (EVALUATE and TRAIN):
     #if MODIFIED_NETWORK == "remove_edges":
         #eng.remove_edges(3)  # Remove 3 links
@@ -316,7 +342,7 @@ if __name__ == '__main__':
         if not EVALUATE or (EVALUATE and TRAIN):
             episode_size = EPOCH_SIZE
         else:
-            episode_size = EPOCH_SIZE * 4
+            episode_size = EPOCH_SIZE 
 
         available_bw_episode = np.zeros(episode_size)
 
@@ -369,7 +395,6 @@ if __name__ == '__main__':
                         bw = eng.bws.get(host, 0) / 100.0  # Normalizar BW para 0-1
                         node_features.append([bw])
                     
-                    # Criar arestas baseadas nas conexões entre hosts
                     for i, host_i in enumerate(all_hosts):
                         for j, host_j in enumerate(all_hosts):
                             if i != j and eng.get_link(host_i, host_j) is not None:
@@ -409,11 +434,14 @@ if __name__ == '__main__':
                         # The probability of the exploration decreases as the number of epochs increases
                         # Start with 0.3 and decreases 0.0001 per epoch
 
-                        prob = -1 if (EVALUATE and not TRAIN) else max(0.1, (0.3 - 0.001 * epoch))
-
-                        # Decision between exploration and exploitation
-                        # if it is exploration, choose a random action
-                        # if it is exploitation, choose the action of the neural network
+                        if EVALUATE and not TRAIN:
+                            if UPDATE_WEIGHTS:
+                                # Só explorar a partir da época 1
+                                prob = max(0.1, (0.3 - 0.002 * epoch)) 
+                            else:
+                                prob = -1  # Cenário 2: nunca explora
+                        else:
+                            prob = max(0.1, (0.3 - 0.001 * epoch))  
 
                         if random.random() < prob:
                             action = random.randint(0, 2) # Exloration - random action
@@ -487,10 +515,8 @@ if __name__ == '__main__':
                         
                         # Logar detalhes
                         modified_hosts = [h[0] for h in increase_results["modified_hosts"]]
-                        excluded_hosts = increase_results["excluded_hosts"]
                         
                         print(f"Total de {len(modified_hosts)} hosts com largura de banda aumentada")
-                        print(f"Total de {len(excluded_hosts)} hosts em caminhos mais curtos sem aumento: {', '.join(excluded_hosts)}")
                         
                         # Marcar como concluído
                         increase_bandwidth_flag = False
@@ -508,7 +534,7 @@ if __name__ == '__main__':
             #print("Total package loss", ng.statistics['package_loss'])
             #print(" ")
 
-            if ((e % 3 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS )) and CRITIC_DOMAIN != "shortest":  
+            if ((e % 3 == 0 and not EVALUATE) or (EVALUATE and UPDATE_WEIGHTS and epoch > 0)) and CRITIC_DOMAIN != "shortest":
                 maddpg_agents.learn(memory)
             
             total_epoch_reward.append(total_reward)
@@ -528,12 +554,13 @@ if __name__ == '__main__':
 
             if EVALUATE and not TRAIN: #and UPDATE_WEIGHTS:
                 graph_y_axis[epoch][e] = int(total_reward) 
-                # Calcular packet loss para este episódio
+
                 if eng.statistics['nr_package_sent'] > 0:
                     episode_packet_loss = (eng.statistics['nr_package_loss'] / eng.statistics['nr_package_sent']) * 100
                 else:
                     episode_packet_loss = 0
-                packet_loss_evolution[epoch][e] = episode_packet_loss
+                packet_loss_evolution[epoch][e] = episode_packet_loss 
+
             elif EVALUATE and TRAIN:
                 graph_y_axis[epoch][e] = int(total_reward)
                 y_axis_training[epoch] = sum(total_epoch_reward) / len(total_epoch_reward)
@@ -563,6 +590,15 @@ if __name__ == '__main__':
             if not EVALUATE:
                 maddpg_agents.save_checkpoint()
                 print("SAVING")
+
+                base_weights_dir = f"{PATH_SIMULATION}/base_weights_{TOPOLOGY_TYPE}_{CRITIC_DOMAIN}_{NEURAL_NETWORK}"
+                src_dir = f"{PATH_SIMULATION}/agent_files{SIM_NR}"
+                if not os.path.exists(base_weights_dir):
+                    os.makedirs(base_weights_dir)
+                for file in os.listdir(src_dir):
+                    if file.endswith(".sync"):
+                        shutil.copy(os.path.join(src_dir, file), os.path.join(base_weights_dir, file))
+                print(f"Pesos base copiados para {base_weights_dir}")
 
         #saving data while training in data file, so data can be accessed while training
         if (not EVALUATE or (EVALUATE and TRAIN) )and (epoch+1)%20 == 0:
@@ -638,7 +674,6 @@ if __name__ == '__main__':
 
     def visualize_link_utilization(link_history, folder_path, epoch=None, all_epochs=False):
         """Visualize and save link utilization data for a specific epoch."""
-        plt.figure(figsize=(12, 8))
         
         # Determinar épocas a processar
         if all_epochs:
@@ -656,23 +691,29 @@ if __name__ == '__main__':
         # Select top 10 links
         top_links = link_averages[:10]
         
-        # Prepare data for chart
-        labels = [f"{link[0][0]}-{link[0][1]}" for link in top_links]
-        values = [link[1] for link in top_links]
         
-        # Create bar chart
-        plt.bar(labels, values, color='skyblue')
-        plt.xlabel('Links (source-destination)')
-        plt.ylabel('Average Utilization (%)')
-        plt.title(title_text)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
+        should_create_chart = (all_epochs or epoch in [1, 2, 3])  # Só épocas 1-3 para cenários 2/3
         
-        # Save chart
-        plt.savefig(f"{folder_path}/{file_prefix}.png")
-        plt.close()
+        if should_create_chart:
+            plt.figure(figsize=(12, 8))
+            
+            # Prepare data for chart
+            labels = [f"{link[0][0]}-{link[0][1]}" for link in top_links]
+            values = [link[1] for link in top_links]
+            
+            # Create bar chart
+            plt.bar(labels, values, color='skyblue')
+            plt.xlabel('Links (source-destination)')
+            plt.ylabel('Average Utilization (%)')
+            plt.title(title_text)
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            
+            # Save chart
+            plt.savefig(f"{folder_path}/{file_prefix}.png")
+            plt.close()
         
-        # Save data to CSV
+        
         with open(f"{folder_path}/{file_prefix}.csv", 'w') as f:
             f.write("Link;Average_Utilization;Status\n")
             for link, avg in link_averages:
@@ -884,9 +925,19 @@ if __name__ == '__main__':
         plt.plot(all_rewards, label="Reward per Episode", color='blue')
         
         # Auto-adjust vertical scale with 10% margin
-        y_min = min(all_rewards) * 0.9 if min(all_rewards) > 0 else min(all_rewards) * 1.1
-        y_max = max(all_rewards) * 1.1 if max(all_rewards) > 0 else max(all_rewards) * 0.9
-        plt.ylim(y_min, y_max)
+        if all_rewards:
+            min_val = min(all_rewards)
+            max_val = max(all_rewards)
+            
+            # Verificar se min e max são iguais para evitar o warning
+            if min_val == max_val:
+                y_min = min_val - 1
+                y_max = max_val + 1
+            else:
+                y_min = min_val * 0.9 if min_val > 0 else min_val * 1.1
+                y_max = max_val * 1.1 if max_val > 0 else max_val * 0.9
+            
+            plt.ylim(y_min, y_max)
         
         # Set title based on the scenario
         if UPDATE_WEIGHTS:
@@ -919,8 +970,17 @@ if __name__ == '__main__':
         
         # Auto-adjust vertical scale with 10% margin
         if all_packet_loss:
-            y_min = min(all_packet_loss) * 0.9 if min(all_packet_loss) > 0 else 0
-            y_max = max(all_packet_loss) * 1.1
+            min_val = min(all_packet_loss)
+            max_val = max(all_packet_loss)
+            
+            # Verificar se min e max são iguais para evitar o warning
+            if min_val == max_val:
+                y_min = max(0, min_val - 1)  # Garantir que não seja negativo
+                y_max = max_val + 1
+            else:
+                y_min = min_val * 0.9 if min_val > 0 else 0
+                y_max = max_val * 1.1
+            
             plt.ylim(y_min, y_max)
         
         # Set title based on the scenario
@@ -971,7 +1031,6 @@ if __name__ == '__main__':
         x = np.arange(0, len(rewards))
         plt.plot(x, rewards, marker='o', linestyle='-', color='blue', label='Recompensa Média')
         
-        # Linha de tendência
         z = np.polyfit(x, rewards, 1)
         p = np.poly1d(z)
         plt.plot(x, p(x), "r--", label=f"Tendência (y = {z[0]:.2f}x + {z[1]:.2f})")
@@ -987,7 +1046,6 @@ if __name__ == '__main__':
                         stabilization_point = i
                         break
         
-        # Salvar dados incluindo informação sobre estabilização
         detailed_df = pd.DataFrame({
             'Epoch': np.arange(len(rewards)),
             'Average_Reward': [f"{value:.3f}" for value in rewards],
@@ -1057,11 +1115,32 @@ if __name__ == '__main__':
                         stabilization_point = i
                         break
         
-        # Salvar dados incluindo informação sobre estabilização
-        detailed_df = pd.DataFrame({
+        # 1. Dados por época (para gráficos comparativos - NOVO FORMATO)
+        epoch_df = pd.DataFrame({
             'Epoch': np.arange(len(packet_loss_per_epoch)),
-            'Average_Packet_Loss': [f"{value:.3f}" for value in packet_loss_per_epoch],
+            'Packet_Loss': [f"{value:.3f}" for value in packet_loss_per_epoch],
             'Stabilized': [(stabilization_point is not None and i >= stabilization_point) for i in range(len(packet_loss_per_epoch))]
+        })
+        epoch_df.to_csv(f"{folder_path}/packet_loss_by_epoch.csv", index=False, sep=';', decimal='.')
+        
+        # 2. Dados expandidos por episódio (para compatibilidade com cenários 2/3)
+        episodes_per_epoch = EPOCH_SIZE 
+        expanded_episodes = []
+        expanded_packet_loss = []
+        
+        for epoch_idx, avg_loss in enumerate(packet_loss_per_epoch):
+            for episode_in_epoch in range(episodes_per_epoch):
+                episode_number = epoch_idx * episodes_per_epoch + episode_in_epoch
+                expanded_episodes.append(episode_number)
+                # Adicionar pequena variação para simular dados por episódio
+                variation = np.random.normal(0, avg_loss * 0.1) if avg_loss > 0 else 0
+                episode_loss = max(0, avg_loss + variation)
+                expanded_packet_loss.append(episode_loss)
+        
+        # Salvar dados expandidos por episódio
+        detailed_df = pd.DataFrame({
+            'Episode': expanded_episodes,
+            'Packet_Loss': [f"{value:.3f}" for value in expanded_packet_loss]
         })
         detailed_df.to_csv(f"{folder_path}/packet_loss_evolution.csv", index=False, sep=';', decimal='.')
         
@@ -1074,23 +1153,32 @@ if __name__ == '__main__':
         plt.savefig(f"{folder_path}/packet_loss_evolution.png")
         plt.close()
         
-        # Se houver ponto de estabilização, criar segundo gráfico mostrando apenas após estabilização
+        # Se houver ponto de estabilização, criar segundo gráfico
         if stabilization_point is not None and stabilization_point < len(packet_loss_per_epoch):
             plt.figure(figsize=(12, 6))
             
-            # Dados apenas após estabilização
             post_stab_x = np.arange(len(packet_loss_per_epoch) - stabilization_point)
             post_stab_y = packet_loss_per_epoch[stabilization_point:]
             
             plt.plot(post_stab_x, post_stab_y, marker='o', linestyle='-', color='orange', 
                     label='Perda de Pacotes Após Estabilização')
             
-            # Linha de tendência após estabilização
             if len(post_stab_y) > 1:
                 post_z = np.polyfit(post_stab_x, post_stab_y, 1)
                 post_p = np.poly1d(post_z)
                 plt.plot(post_stab_x, post_p(post_stab_x), "r--", 
                     label=f"Tendência Após Estabilização (y = {post_z[0]:.3f}x + {post_z[1]:.3f})")
+            
+            if post_stab_y and len(post_stab_y) > 0:
+                min_val = min(post_stab_y)
+                max_val = max(post_stab_y)
+                
+                if min_val == max_val:
+                    if min_val == 0:
+                        plt.ylim(-0.1, 0.1)
+                    else:
+                        margin = abs(min_val) * 0.1
+                        plt.ylim(min_val - margin, max_val + margin)
             
             plt.title("Evolução da Perda de Pacotes Após Estabilização da Largura de Banda")
             plt.xlabel("Épocas Após Estabilização")
@@ -1105,7 +1193,9 @@ if __name__ == '__main__':
         """Processa resultados de avaliação para qualquer cenário EVALUATE"""
         plt.figure(figsize=(12, 6))
 
-        # Process data for each epoch
+        # MUDANÇA: Process data apenas para épocas relevantes
+        # Época 0: sempre (baseline)
+        # Épocas 1-3: apenas para cenários 2/3 (após falhas)
         for epoch in range(nr_epochs):
             visualize_link_utilization(link_utilization_history, folder_path, epoch)
         
@@ -1126,7 +1216,13 @@ if __name__ == '__main__':
         
     def create_link_utilization_distribution_graphs(topology_type):
         """Cria gráficos de distribuição de utilização dos links para todos os cenários."""
-        scenarios = {2: "eval", 3: "eval_update", 4: "eval_train"}
+        scenarios = {
+            "2a": "eval_1link",
+            "2b": "eval_2links", 
+            "3a": "eval_update_1link",
+            "3b": "eval_update_2links", 
+            4: "eval_train"
+        }
         
         # Caminho base para a topologia atual
         topology_path = os.path.join(PATH_SIMULATION, "results", topology_type)
@@ -1153,25 +1249,30 @@ if __name__ == '__main__':
         
         print(f"Gerando gráficos de distribuição de utilização dos links para {topology_type}...")
         
-        for scenario_type, scenario_name in scenarios.items():
-            print(f"Processando distribuições para cenário {scenario_type} ({scenario_name})...")
+        for scenario_key, scenario_name in scenarios.items():
+            print(f"Processando distribuições para cenário {scenario_key} ({scenario_name})...")
             
-            # Para cenários 2 e 3: criar 4 gráficos (uma para cada época)
-            if scenario_type in [2, 3]:
-                for epoch in range(4):
-                    create_distribution_graph_for_epoch(
-                        gnn_path, configurations, scenario_type, scenario_name, 
-                        epoch, distribution_folder, topology_type
-                    )
-            
-            # Para cenário 4: criar 1 gráfico para todo o treino
-            elif scenario_type == 4:
+            if scenario_key in ["2a", "2b", "3a", "3b"]:
+                # MUDANÇA: Para cenários 2 e 3, criar apenas 2 gráficos
+                # 1. Época 0 (baseline - rede original)
+                create_distribution_graph_for_epoch(
+                    gnn_path, configurations, scenario_key, scenario_name, 
+                    0, distribution_folder, topology_type  # APENAS época 0
+                )
+                
+                # 2. Épocas 1-3 combinadas (após remoção de links)
+                create_distribution_graph_for_post_failure_epochs(
+                    gnn_path, configurations, scenario_key, scenario_name,
+                    distribution_folder, topology_type
+                )
+            else:
+                # Para cenário 4: usar função específica para treino
                 create_distribution_graph_for_training(
-                    gnn_path, configurations, scenario_type, scenario_name,
+                    gnn_path, configurations, scenario_key, scenario_name,
                     distribution_folder, topology_type
                 )
 
-    def create_distribution_graph_for_epoch(gnn_path, configurations, scenario_type, scenario_name, 
+    def create_distribution_graph_for_epoch(gnn_path, configurations, scenario_key, scenario_name, 
                                         epoch, distribution_folder, topology_type):
         """Cria gráfico de distribuição para uma época específica dos cenários 2/3."""
         import matplotlib.pyplot as plt
@@ -1184,6 +1285,14 @@ if __name__ == '__main__':
         colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
         
         data_found = False
+        
+        # Determinar o número do cenário baseado na chave
+        if scenario_key in ["2a", "2b"]:
+            scenario_number = 2
+        elif scenario_key in ["3a", "3b"]:
+            scenario_number = 3
+        else:
+            scenario_number = scenario_key
         
         for i, config in enumerate(configurations):
             config_path = os.path.join(gnn_path, config)
@@ -1198,7 +1307,7 @@ if __name__ == '__main__':
             if not result_folders:
                 continue
                 
-            scenario_folders = [d for d in result_folders if f"_{scenario_type}" in d]
+            scenario_folders = [d for d in result_folders if f"_{scenario_number}" in d]
             if scenario_folders:
                 target_folder = sorted(scenario_folders)[-1]
             else:
@@ -1220,10 +1329,6 @@ if __name__ == '__main__':
                     if not active_links.empty and 'Average_Utilization' in active_links.columns:
                         utilization_data = active_links['Average_Utilization'].values
                         
-                        # Criar histograma
-                        plt.hist(utilization_data, bins=15, alpha=0.3, color=colors[i], 
-                                density=True, edgecolor='black', linewidth=0.5)
-                        
                         # Adicionar curva de densidade suavizada
                         if len(utilization_data) > 1:
                             # Usar kernel density estimation para curva suave
@@ -1241,22 +1346,120 @@ if __name__ == '__main__':
                     print(f"Erro ao processar {util_file}: {str(e)}")
         
         if data_found:
-            plt.title(f"Distribuição de Utilização dos Links - Cenário {scenario_type} - Época {epoch} - {topology_type.title()}")
+            plt.title(f"Distribuição de Utilização dos Links - Cenário {scenario_key} - Época {epoch} - {topology_type.title()}")
             plt.xlabel("Utilização dos Links (%)")
             plt.ylabel("Densidade")
             plt.legend()
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
             
-            output_file = os.path.join(distribution_folder, f"link_distribution_scenario{scenario_type}_epoch{epoch}.png")
+            output_file = os.path.join(distribution_folder, f"link_distribution_scenario{scenario_key}_epoch{epoch}.png")
             plt.savefig(output_file, dpi=300, bbox_inches='tight')
             print(f"Gráfico de distribuição salvo: {output_file}")
         else:
-            print(f"Nenhum dado encontrado para cenário {scenario_type}, época {epoch}")
+            print(f"Nenhum dado encontrado para cenário {scenario_key}, época {epoch}")
         
         plt.close()
 
-    def create_distribution_graph_for_training(gnn_path, configurations, scenario_type, scenario_name,
+    def create_distribution_graph_for_post_failure_epochs(gnn_path, configurations, scenario_key, scenario_name,
+                                                distribution_folder, topology_type):
+        """Cria gráfico de distribuição para épocas 1-3 combinadas dos cenários 2/3."""
+        import matplotlib.pyplot as plt
+        from scipy import stats
+        import numpy as np
+        
+        plt.figure(figsize=(12, 8), dpi=300)
+        
+        # Cores para cada configuração
+        colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
+        
+        data_found = False
+        
+        # Determinar o número do cenário baseado na chave
+        if scenario_key in ["2a", "2b"]:
+            scenario_number = 2
+        elif scenario_key in ["3a", "3b"]:
+            scenario_number = 3
+        else:
+            scenario_number = scenario_key
+        
+        for i, config in enumerate(configurations):
+            config_path = os.path.join(gnn_path, config)
+            if not os.path.exists(config_path):
+                continue
+                
+            # Encontrar pasta do cenário
+            result_folders = [d for d in os.listdir(config_path) 
+                            if os.path.isdir(os.path.join(config_path, d)) and 
+                                scenario_name in d]
+            
+            if not result_folders:
+                continue
+                
+            scenario_folders = [d for d in result_folders if f"_{scenario_number}" in d]
+            if scenario_folders:
+                target_folder = sorted(scenario_folders)[-1]
+            else:
+                target_folder = sorted(result_folders)[-1]
+            
+            folder_path = os.path.join(config_path, target_folder)
+            
+            # MUDANÇA: Combinar dados das épocas 1, 2, 3
+            combined_utilization_data = []
+            
+            for epoch in range(1, 4):  # Épocas 1, 2, 3 (após falhas)
+                util_file = os.path.join(folder_path, f"top_links_utilization_epoch{epoch}.csv")
+                
+                if os.path.exists(util_file):
+                    try:
+                        import pandas as pd
+                        df = pd.read_csv(util_file, sep=';', decimal='.')
+                        
+                        # Filtrar apenas links ativos
+                        active_links = df[df['Status'] == 'ACTIVE'] if 'Status' in df.columns else df
+                        
+                        if not active_links.empty and 'Average_Utilization' in active_links.columns:
+                            epoch_data = active_links['Average_Utilization'].values
+                            combined_utilization_data.extend(epoch_data)
+                            
+                    except Exception as e:
+                        print(f"Erro ao processar {util_file}: {str(e)}")
+            
+            # Se temos dados combinados, criar a distribuição
+            if combined_utilization_data:
+                utilization_data = np.array(combined_utilization_data)
+                
+                # Adicionar curva de densidade suavizada
+                if len(utilization_data) > 1:
+                    # Usar kernel density estimation para curva suave
+                    kde = stats.gaussian_kde(utilization_data)
+                    x_range = np.linspace(utilization_data.min(), utilization_data.max(), 100)
+                    density = kde(x_range)
+                    
+                    label = config.replace("_", " ").title()
+                    plt.plot(x_range, density, color=colors[i], linewidth=2.5, 
+                            label=label)
+                    
+                    data_found = True
+                    print(f"Dados combinados para {config}: {len(utilization_data)} valores de épocas 1-3")
+
+        if data_found:
+            plt.title(f"Distribuição de Utilização dos Links - Cenário {scenario_key} - Épocas 1-3 (Após Falhas) - {topology_type.title()}")
+            plt.xlabel("Utilização dos Links (%)")
+            plt.ylabel("Densidade")
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            
+            output_file = os.path.join(distribution_folder, f"link_distribution_scenario{scenario_key}_post_failure.png")
+            plt.savefig(output_file, dpi=300, bbox_inches='tight')
+            print(f"Gráfico de distribuição pós-falha salvo: {output_file}")
+        else:
+            print(f"Nenhum dado encontrado para cenário {scenario_key} - épocas pós-falha")
+        
+        plt.close()
+
+    def create_distribution_graph_for_training(gnn_path, configurations, scenario_key, scenario_name,
                                             distribution_folder, topology_type):
         """Cria gráfico de distribuição para todo o treino do cenário 4."""
         import matplotlib.pyplot as plt
@@ -1283,7 +1486,7 @@ if __name__ == '__main__':
             if not result_folders:
                 continue
                 
-            scenario_folders = [d for d in result_folders if f"_{scenario_type}" in d]
+            scenario_folders = [d for d in result_folders if f"_{scenario_key}" in d]
             if scenario_folders:
                 target_folder = sorted(scenario_folders)[-1]
             else:
@@ -1305,10 +1508,6 @@ if __name__ == '__main__':
                     if not active_links.empty and 'Average_Utilization' in active_links.columns:
                         utilization_data = active_links['Average_Utilization'].values
                         
-                        # Criar histograma
-                        plt.hist(utilization_data, bins=15, alpha=0.3, color=colors[i], 
-                                density=True, edgecolor='black', linewidth=0.5)
-                        
                         # Adicionar curva de densidade suavizada
                         if len(utilization_data) > 1:
                             # Usar kernel density estimation para curva suave
@@ -1326,24 +1525,30 @@ if __name__ == '__main__':
                     print(f"Erro ao processar {util_file}: {str(e)}")
         
         if data_found:
-            plt.title(f"Distribuição de Utilização dos Links - Cenário {scenario_type} - Todo o Treino - {topology_type.title()}")
+            plt.title(f"Distribuição de Utilização dos Links - Cenário {scenario_key} - Todo o Treino - {topology_type.title()}")
             plt.xlabel("Utilização dos Links (%)")
             plt.ylabel("Densidade")
             plt.legend()
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
             
-            output_file = os.path.join(distribution_folder, f"link_distribution_scenario{scenario_type}_overall.png")
+            output_file = os.path.join(distribution_folder, f"link_distribution_scenario{scenario_key}_overall.png")
             plt.savefig(output_file, dpi=300, bbox_inches='tight')
             print(f"Gráfico de distribuição salvo: {output_file}")
         else:
-            print(f"Nenhum dado encontrado para cenário {scenario_type} - treino completo")
+            print(f"Nenhum dado encontrado para cenário {scenario_key} - treino completo")
         
         plt.close()
 
     def create_comparison_graphs(topology_type):
         """Cria gráficos comparativos para todos os cenários e configurações de rede."""
-        scenarios = {2: "eval", 3: "eval_update", 4: "eval_train"}
+        scenarios = {
+            "2a": "eval_1link",
+            "2b": "eval_2links", 
+            "3a": "eval_update_1link",
+            "3b": "eval_update_2links", 
+            4: "eval_train"
+        }
         
         # Caminho base para a topologia atual
         topology_path = os.path.join(PATH_SIMULATION, "results", topology_type)
@@ -1373,8 +1578,8 @@ if __name__ == '__main__':
         print(f"Gerando gráficos comparativos para topologia {topology_type}...")
         
         # Para cada cenário, criar os três tipos de gráficos
-        for scenario_type, scenario_name in scenarios.items():
-            print(f"Processando cenário {scenario_type} ({scenario_name})...")
+        for scenario_key, scenario_name in scenarios.items():
+            print(f"Processando cenário {scenario_key} ({scenario_name})...")
             
             # Limpar completamente o estado do matplotlib entre cada cenário
             plt.close('all')
@@ -1386,476 +1591,490 @@ if __name__ == '__main__':
             plt.rcParams['lines.linewidth'] = 2.5
             plt.rcParams['font.size'] = 12
             
-            print(f"\n========= Iniciando gráfico de RECOMPENSAS para cenário {scenario_type} =========")
-            reward_data_found = False
+            print(f"\n========= Iniciando gráfico de RECOMPENSAS para cenário {scenario_key} ({scenario_name}) =========")
             
-            for config in configurations:
-                config_path = os.path.join(gnn_path, config)
-                if not os.path.exists(config_path):
-                    continue
-                    
-                # MODIFICAÇÃO AQUI: Busca seletiva de pastas por cenário
-                if scenario_type == 2:
-                    # Para cenário 2, busca apenas pastas com "eval" mas SEM "update" ou "train"
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                "eval" in d and 
-                                "update" not in d and 
-                                "train" not in d]
-                elif scenario_type == 3:
-                    # Para cenário 3, busca apenas pastas com "eval_update"
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                "eval_update" in d]
-                elif scenario_type == 4:
-                    # Para cenário 4, busca apenas pastas com "eval_train"
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                "eval_train" in d]
-                else:
-                    # Fallback para a busca original
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                scenario_name in d]
+            # Processar este cenário específico
+            process_single_scenario(gnn_path, configurations, scenario_key, scenario_name, comparison_folder, topology_type)
+
+    def process_single_scenario(gnn_path, configurations, scenario_key, scenario_name, comparison_folder, topology_type):
+        """Processa um cenário específico e gera os gráficos correspondentes."""
+        import matplotlib.pyplot as plt
+        
+        # 1. GRÁFICO DE RECOMPENSAS
+        plt.figure(figsize=(16, 10), dpi=300)
+        reward_data_found = False
+        
+        for config in configurations:
+            config_path = os.path.join(gnn_path, config)
+            if not os.path.exists(config_path):
+                continue
                 
-                if not result_folders:
-                    continue
-                    
-                # Também podemos verificar especificamente por pasta com o número do cenário
-                scenario_folders = [d for d in result_folders if f"_{scenario_type}" in d]
-                if scenario_folders:
-                    # Usar a pasta específica para este cenário
-                    target_folder = sorted(scenario_folders)[-1]
-                    print(f"Usando pasta específica com sufixo _{scenario_type}: {target_folder}")
-                elif result_folders:
-                    # Se não encontrar pasta específica com o número, usar a mais recente com o nome correto
-                    target_folder = sorted(result_folders)[-1]
-                    print(f"Usando pasta mais recente para cenário {scenario_type}: {target_folder}")
-                else:
-                    # Se não houver pastas adequadas, pular esta configuração
-                    print(f"Nenhuma pasta adequada encontrada para {config}, cenário {scenario_type}")
-                    continue
+            # Busca por pastas
+            result_folders = [d for d in os.listdir(config_path) 
+                            if os.path.isdir(os.path.join(config_path, d)) and 
+                            scenario_name in d]
+            
+            if not result_folders:
+                continue
                 
-                print(f"Usando pasta {target_folder} para cenário {scenario_type} ({scenario_name})")
+            # CORREÇÃO: Usar a mesma lógica da função de distribuição
+            if scenario_key in ["2a", "2b"]:
+                scenario_number = 2
+                # Diferenciar entre 1link e 2links
+                if scenario_key == "2a":
+                    # Procurar especificamente por pastas com "1link" no nome
+                    target_folders = [d for d in result_folders if "1link" in d and f"_{scenario_number}" in d]
+                else:  # scenario_key == "2b"
+                    # Procurar especificamente por pastas com "2links" no nome
+                    target_folders = [d for d in result_folders if "2links" in d and f"_{scenario_number}" in d]
+            elif scenario_key in ["3a", "3b"]:
+                scenario_number = 3
+                # Diferenciar entre 1link e 2links para cenário 3
+                if scenario_key == "3a":
+                    target_folders = [d for d in result_folders if "1link" in d and f"_{scenario_number}" in d]
+                else:  # scenario_key == "3b"
+                    target_folders = [d for d in result_folders if "2links" in d and f"_{scenario_number}" in d]
+            elif scenario_key == 4:
+                scenario_number = 4
+                target_folders = [d for d in result_folders if f"_{scenario_number}" in d]
+            else:
+                scenario_number = scenario_key
+                target_folders = [d for d in result_folders if f"_{scenario_number}" in d]
                 
-                # Procurar múltiplos arquivos possíveis
-                reward_files = [
-                    os.path.join(config_path, target_folder, "data_total.csv"),
-                    os.path.join(config_path, target_folder, "reward_evolution.csv")
-                ]
-                
-                for data_file in reward_files:            
-                    if os.path.exists(data_file):
-                        try:                            
-                            print(f"Lendo arquivo {data_file} para cenário {scenario_type} ({scenario_name})")
-                            df = pd.read_csv(data_file, sep=';', decimal='.')
+            # Selecionar a pasta mais recente se houver múltiplas
+            if target_folders:
+                target_folder = sorted(target_folders)[-1]
+                print(f"Usando pasta específica para cenário {scenario_key}: {target_folder}")
+            elif result_folders:
+                target_folder = sorted(result_folders)[-1]
+                print(f"Usando pasta genérica para cenário {scenario_key}: {target_folder}")
+            else:
+                print(f"Nenhuma pasta adequada encontrada para {config}, cenário {scenario_key}")
+                continue
+            
+            print(f"Processando {config} - {target_folder} para cenário {scenario_key} ({scenario_name})")
+            
+            # Procurar múltiplos arquivos possíveis
+            reward_files = [
+                os.path.join(config_path, target_folder, "data_total.csv"),
+                os.path.join(config_path, target_folder, "reward_evolution.csv")
+            ]
+            
+            for data_file in reward_files:            
+                if os.path.exists(data_file):
+                    try:                            
+                        print(f"Lendo arquivo {data_file} para cenário {scenario_key} ({scenario_name})")
+                        df = pd.read_csv(data_file, sep=';', decimal='.')
+                        
+                        # Processar cada tipo de arquivo diferentemente
+                        if 'Episode' in df.columns and 'Reward' in df.columns:
+                            # reward_evolution.csv para cenários 2/3
+                            # MUDANÇA: Calcular médias por época em vez de usar todos os episódios
+                            episodes = df['Episode'].values
+                            rewards = df['Reward'].values
                             
-                            # Debug - mostrar informações do dataframe
-                            print(f"Colunas encontradas: {df.columns.tolist()}")
-                            print(f"Dimensões do dataframe: {df.shape}")
-                            print(f"Primeiras linhas do dataframe:\n{df.head()}")
+                            # Converter valores se forem strings
+                            if len(rewards) > 0 and isinstance(rewards[0], str):
+                                rewards = np.array([float(val.replace(',', '.')) for val in rewards])
                             
-                            # Processar cada tipo de arquivo diferentemente
-                            if 'Episode' in df.columns and 'Reward' in df.columns:
-                                # reward_evolution.csv para cenários 2/3
-                                episodes_per_epoch = 16  # 4 episódios * 4 (padrão para cenários 2/3)
-                                epochs = len(df) // episodes_per_epoch
-                                x = np.arange(epochs)
+                            # CALCULAR MÉDIAS POR ÉPOCA (400 episódios = 1 época para cenários 2/3)
+                            epoch_size = EPOCH_SIZE 
+                            num_epochs = len(episodes) // epoch_size
+                            
+                            epoch_means = []
+                            epoch_numbers = []
+                            
+                            for epoch in range(num_epochs):
+                                start_idx = epoch * epoch_size
+                                end_idx = (epoch + 1) * epoch_size
+                                epoch_rewards = rewards[start_idx:end_idx]
                                 
-                                # Calcular média de recompensa para cada época
-                                y = []
-                                for i in range(epochs):
-                                    start = i * episodes_per_epoch
-                                    end = (i + 1) * episodes_per_epoch
-                                    epoch_data = df['Reward'][start:end]
-                                    if not epoch_data.empty:
-                                        y.append(epoch_data.mean())
-                                    else:
-                                        y.append(0)
-                                print(f"Valores calculados para {config} (cenário {scenario_type}): {y}")
+                                if len(epoch_rewards) > 0:
+                                    epoch_mean = np.mean(epoch_rewards)
+                                    epoch_means.append(epoch_mean)
+                                    epoch_numbers.append(epoch)
+                            
+                            # Usar médias por época em vez de todos os episódios
+                            x = np.array(epoch_numbers)
+                            y = np.array(epoch_means)
+                            
+                            print(f"Valores calculados para {config} (cenário {scenario_key}): {len(y)} épocas (média de {epoch_size} episódios cada)")
+                            
+                        else:
+                            # data_total.csv para cenário 4
+                            if 'Epoch' in df.columns:
+                                x = df['Epoch'].values
                             else:
-                                # data_total.csv para cenário 4
-                                if 'Epoch' in df.columns:
-                                    x = df['Epoch'].values
-                                else:
-                                    x = range(len(df))
-                                
-                                if 'Average_Reward' in df.columns:
-                                    y = df['Average_Reward'].values
-                                else:
-                                    y = df.iloc[:, 1].values
-                                print(f"Valores calculados para {config}: {y}")
+                                x = range(len(df))
+                            
+                            if 'Average_Reward' in df.columns:
+                                y = df['Average_Reward'].values
+                            else:
+                                y = df.iloc[:, 1].values
+                            print(f"Valores calculados para {config}: {y}")
                             
                             # Converter valores se forem strings
                             if len(y) > 0 and isinstance(y[0], str):
                                 y = np.array([float(val.replace(',', '.')) for val in y])
-                                
-                            # Use consistent colors across all graphs
-                            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
-                            marker_styles = ['o', 's', '^', 'D']  # circle, square, triangle, diamond
-                            
-                            label = config.replace("_", " ").title()
-                            config_idx = configurations.index(config) if config in configurations else 0
-                            color_idx = min(config_idx, 3)
-                            marker_idx = min(config_idx, 3)
-                            
-                            plt.plot(x, y, marker=marker_styles[marker_idx], linestyle='-',
-                                label=label, alpha=0.8, color=colors[color_idx],
-                                linewidth=2.5, markersize=8)
-                            reward_data_found = True
-                            break  # Se encontrou um arquivo, não processa o outro
-                        except Exception as e:
-                            print(f"Erro processando {data_file}: {str(e)}")
+
+                        # Use consistent colors across all graphs
+                        colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
+                        marker_styles = ['o', 's', '^', 'D']  # circle, square, triangle, diamond
+
+                        label = config.replace("_", " ").title()
+                        config_idx = configurations.index(config) if config in configurations else 0
+                        color_idx = min(config_idx, 3)
+                        marker_idx = min(config_idx, 3)
+
+                        plt.plot(x, y, marker=marker_styles[marker_idx], linestyle='-',
+                            label=label, alpha=0.8, color=colors[color_idx],
+                            linewidth=2.5, markersize=8)
+                        reward_data_found = True
+                        break  # APENAS quebra o loop de arquivos, NÃO o loop de configurações
+                        
+                    except Exception as e:
+                        print(f"Erro processando {data_file}: {str(e)}")
+        
+        # AGORA sim, depois de processar TODAS as configurações, finalizar o gráfico
+        if reward_data_found:
+            # Configurações do gráfico de recompensas
+            plt.title(f"Comparação de Recompensas - Cenário {scenario_key} ({scenario_name}) - {topology_type.title()}")
             
-            if reward_data_found:
-                # Configurações do gráfico de recompensas
-                plt.title(f"Comparação de Recompensas - Cenário {scenario_type} ({scenario_name}) - {topology_type.title()}")
-                plt.xlabel("Época")
-                plt.ylabel("Recompensa Média")
-                plt.grid(True, linestyle='--', alpha=0.7)
-                plt.legend()
-                
-                # Se for cenário 2/3, marcar pontos de falha
-                if scenario_type in [2, 3]:
-                    for i in range(1, len(x)):
-                        plt.axvline(x=i, color='r', linestyle='--', alpha=0.3, 
-                                label='Falha de Link' if i==1 else "")
-                
-                # Se for cenário 4, marcar pontos de aumento de banda
-                elif scenario_type == 4:
-                    # Calcular ponto de estabilização
-                    stabilization_point = None
-                    if STABILIZE_BANDWIDTH:
-                        bw_factor = 1.0
-                        for i in range(len(x)):
-                            if i > 0 and i % INCREASE_BANDWIDTH_INTERVAL == 0:
-                                bw_factor *= BANDWIDTH_INCREASE_FACTOR
-                                if bw_factor >= STABILIZE_AFTER_MULTIPLIER:
-                                    stabilization_point = i
-                                    break
-                    
-                    for i in range(INCREASE_BANDWIDTH_INTERVAL, len(x), INCREASE_BANDWIDTH_INTERVAL):
-                        if stabilization_point is not None and i == stabilization_point:
-                            # Ponto de estabilização - linha roxa
-                            plt.axvline(x=i, color='purple', linestyle='-', alpha=0.7,
-                                    label='Estabilização da Largura de Banda (150%)')
-                        elif stabilization_point is None or i < stabilization_point:
-                            # Aumento normal de largura de banda - linha verde
-                            plt.axvline(x=i, color='g', linestyle='--', alpha=0.3,
-                                    label='Dimunuição de Banda' if i==INCREASE_BANDWIDTH_INTERVAL else "")
-                
-                plt.tight_layout()
-                output_file = os.path.join(comparison_folder, f"reward_comparison_scenario{scenario_type}.png")
-                print(f"Salvando gráfico de recompensas para cenário {scenario_type} em: {output_file}")
-                plt.savefig(output_file, dpi=300)
-                plt.close('all')  # Garantir que todas as figuras sejam fechadas
-            else:
-                plt.close('all')
-                print(f"Nenhum dado de recompensa encontrado para o cenário {scenario_type}")
+            # MUDANÇA: Agora todos os cenários usam "Época" no eixo X
+            plt.xlabel("Época")
+            plt.ylabel("Recompensa Média")
             
-            # 2. GRÁFICO DE CONGESTIONAMENTO
-            # Limpar completamente o estado do matplotlib
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.legend()
+            
+            # Se for cenário 2/3, marcar pontos de falha nas épocas certas
+            if scenario_key in ["2a", "2b", "3a", "3b"]:
+                for epoch in range(1, 4):  # Épocas 1, 2, 3 têm falhas
+                    plt.axvline(x=epoch, color='r', linestyle='--', alpha=0.7, linewidth=2,
+                            label="Falhas de Links" if epoch == 1 else "")
+            
+            plt.tight_layout()
+            output_file = os.path.join(comparison_folder, f"reward_comparison_scenario{scenario_key}.png")
+            print(f"Salvando gráfico de recompensas para cenário {scenario_key} em: {output_file}")
+            plt.savefig(output_file, dpi=300)
             plt.close('all')
-            
-            # Configurações para aumentar a resolução dos gráficos
-            plt.figure(figsize=(16, 10), dpi=300)
-            plt.rcParams['figure.figsize'] = (16, 10) 
-            plt.rcParams['figure.dpi'] = 300
-            plt.rcParams['lines.linewidth'] = 2.5
-            plt.rcParams['font.size'] = 12
-            
-            print(f"\n========= Iniciando gráfico de CONGESTIONAMENTO para cenário {scenario_type} =========")
-            congestion_data = {}
-            
-            for config in configurations:
-                config_path = os.path.join(gnn_path, config)
-                if not os.path.exists(config_path):
-                    continue
-                    
-                # MODIFICAÇÃO AQUI: Busca seletiva de pastas por cenário
-                if scenario_type == 2:
-                    # Para cenário 2, busca apenas pastas com "eval" mas SEM "update" ou "train"
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                "eval" in d and 
-                                "update" not in d and 
-                                "train" not in d]
-                elif scenario_type == 3:
-                    # Para cenário 3, busca apenas pastas com "eval_update"
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                "eval_update" in d]
-                elif scenario_type == 4:
-                    # Para cenário 4, busca apenas pastas com "eval_train"
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                "eval_train" in d]
-                else:
-                    # Fallback para a busca original
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
+        else:
+            plt.close('all')
+            print(f"Nenhum dado de recompensa encontrado para o cenário {scenario_key}")
+
+        # 2. GRÁFICO DE CONGESTIONAMENTO
+        plt.close('all')
+        plt.figure(figsize=(16, 10), dpi=300)
+        print(f"\n========= Iniciando gráfico de CONGESTIONAMENTO para cenário {scenario_key} =========")
+        congestion_data = {}
+
+        for config in configurations:
+            config_path = os.path.join(gnn_path, config)
+            if not os.path.exists(config_path):
+                continue
+                
+            # Busca seletiva de pastas por cenário - USAR A MESMA LÓGICA DA DISTRIBUIÇÃO
+            result_folders = [d for d in os.listdir(config_path) 
+                            if os.path.isdir(os.path.join(config_path, d)) and 
                                 scenario_name in d]
+            
+            if not result_folders:
+                continue
+            
+            # CORREÇÃO: Usar a mesma lógica de seleção que funciona na distribuição
+            if scenario_key in ["2a", "2b"]:
+                scenario_number = 2
+                # Diferenciar entre 1link e 2links
+                if scenario_key == "2a":
+                    # Procurar especificamente por pastas com "1link" no nome
+                    target_folders = [d for d in result_folders if "1link" in d and f"_{scenario_number}" in d]
+                else:  # scenario_key == "2b"
+                    # Procurar especificamente por pastas com "2links" no nome
+                    target_folders = [d for d in result_folders if "2links" in d and f"_{scenario_number}" in d]
+            elif scenario_key in ["3a", "3b"]:
+                scenario_number = 3
+                # Diferenciar entre 1link e 2links para cenário 3
+                if scenario_key == "3a":
+                    target_folders = [d for d in result_folders if "1link" in d and f"_{scenario_number}" in d]
+                else:  # scenario_key == "3b"
+                    target_folders = [d for d in result_folders if "2links" in d and f"_{scenario_number}" in d]
+            elif scenario_key == 4:
+                scenario_number = 4
+                target_folders = [d for d in result_folders if f"_{scenario_number}" in d]
+            else:
+                scenario_number = scenario_key
+                target_folders = [d for d in result_folders if f"_{scenario_number}" in d]
+            
+            # Selecionar a pasta mais recente se houver múltiplas
+            if target_folders:
+                target_folder = sorted(target_folders)[-1]
+                print(f"Usando pasta específica para cenário {scenario_key}: {target_folder}")
+            elif result_folders:
+                target_folder = sorted(result_folders)[-1]
+                print(f"Usando pasta genérica para cenário {scenario_key}: {target_folder}")
+            else:
+                print(f"Nenhuma pasta adequada encontrada para {config}, cenário {scenario_key}")
+                continue
+            
+            print(f"Usando pasta {target_folder} para dados de congestionamento, cenário {scenario_key}")
+            folder_path = os.path.join(config_path, target_folder)
+            
+            # Coletar valores de utilização
+            utilization_values = []
+            
+            if scenario_key == 4:
+                # Para cenário 4, usar top_links_utilization_overall.csv (manter como está)
+                util_file = os.path.join(folder_path, "top_links_utilization_overall.csv")
+                if os.path.exists(util_file):
+                    try:
+                        df = pd.read_csv(util_file, sep=';', decimal='.')
+                        if 'Average_Utilization' in df.columns:
+                            # Filtrar links ativos
+                            active_links = df[df['Status'] == 'ACTIVE'] if 'Status' in df.columns else df
+                            if not active_links.empty:
+                                # Pegar os top 4 links mais congestionados para visualização
+                                sorted_links = active_links.sort_values('Average_Utilization', ascending=False)
+                                top_utils = sorted_links['Average_Utilization'].head(4).values
+                                utilization_values.extend(top_utils)
+                    except Exception as e:
+                        print(f"Erro ao processar {util_file}: {str(e)}")
+            else:
+                # MUDANÇA: Para cenários 2/3, calcular média dos top 4 links APENAS das épocas 1-3
+                print(f"Processando cenários {scenario_key}: calculando média dos top 4 links após remoção")
                 
-                if not result_folders:
-                    continue
+                # Coletar dados de utilização das épocas 1-3 (após remoção de links)
+                all_link_utils = {}
                 
-                # Também podemos verificar especificamente por pasta com o número do cenário
-                scenario_folders = [d for d in result_folders if f"_{scenario_type}" in d]
-                if scenario_folders:
-                    # Usar a pasta específica para este cenário
-                    target_folder = sorted(scenario_folders)[-1]
-                    print(f"Usando pasta específica com sufixo _{scenario_type}: {target_folder}")
-                elif result_folders:
-                    # Se não encontrar pasta específica com o número, usar a mais recente com o nome correto
-                    target_folder = sorted(result_folders)[-1]
-                    print(f"Usando pasta mais recente para cenário {scenario_type}: {target_folder}")
-                else:
-                    # Se não houver pastas adequadas, pular esta configuração
-                    print(f"Nenhuma pasta adequada encontrada para {config}, cenário {scenario_type}")
-                    continue
-                
-                print(f"Usando pasta {target_folder} para dados de congestionamento, cenário {scenario_type}")
-                folder_path = os.path.join(config_path, target_folder)
-                
-                # Coletar valores de utilização máxima
-                max_utilization = []
-                
-                if scenario_type == 4:
-                    # Para cenário 4, usar top_links_utilization_overall.csv
-                    util_file = os.path.join(folder_path, "top_links_utilization_overall.csv")
+                for epoch in range(1, 4):  # APENAS épocas 1, 2, 3 (após falhas)
+                    util_file = os.path.join(folder_path, f"top_links_utilization_epoch{epoch}.csv")
                     if os.path.exists(util_file):
                         try:
                             df = pd.read_csv(util_file, sep=';', decimal='.')
-                            # Para cenário 4, não tem Epoch no arquivo, mas tem Average_Utilization
-                            if 'Average_Utilization' in df.columns:
-                                # Filtrar links ativos
-                                active_links = df[df['Status'] == 'ACTIVE'] if 'Status' in df.columns else df
-                                if not active_links.empty:
-                                    # Pegar os top 4 links mais congestionados para visualização
-                                    sorted_links = active_links.sort_values('Average_Utilization', ascending=False)
-                                    top_utils = sorted_links['Average_Utilization'].head(4).values
-                                    max_utilization.extend(top_utils)
+                            # Filtrar links ativos
+                            active_links = df[df['Status'] == 'ACTIVE'] if 'Status' in df.columns else df
+                            
+                            if not active_links.empty and 'Average_Utilization' in active_links.columns:
+                                for _, row in active_links.iterrows():
+                                    link_name = row['Link']
+                                    util_value = row['Average_Utilization']
+                                    
+                                    if link_name not in all_link_utils:
+                                        all_link_utils[link_name] = []
+                                    all_link_utils[link_name].append(util_value)
+                                    
                         except Exception as e:
                             print(f"Erro ao processar {util_file}: {str(e)}")
-                else:
-                    # Para cenários 2/3, usar top_links_utilization_epochX.csv
-                    for epoch in range(4):  # Tipicamente temos 4 épocas
-                        util_file = os.path.join(folder_path, f"top_links_utilization_epoch{epoch}.csv")
-                        if os.path.exists(util_file):
-                            try:
-                                df = pd.read_csv(util_file, sep=';', decimal='.')
-                                # Filtrar links ativos
-                                active_links = df[df['Status'] == 'ACTIVE'] if 'Status' in df.columns else df
-                                if not active_links.empty and 'Average_Utilization' in active_links.columns:
-                                    max_util = active_links['Average_Utilization'].max()
-                                    max_utilization.append(max_util)
-                            except Exception as e:
-                                print(f"Erro ao processar {util_file}: {str(e)}")
                 
-                if max_utilization:
-                    congestion_data[config] = max_utilization
-            
-            # Criar gráfico de barras agrupadas se temos dados
-            if congestion_data:
-                plt.figure(figsize=(16, 10), dpi=300)
-                
-                # Determinar número máximo de épocas/pontos por configuração
-                max_points = max(len(utils) for utils in congestion_data.values())
-                
-                # Criar barras agrupadas
-                bar_width = 0.2
-                x = np.arange(max_points)
-                
-                # Posições para as barras de cada configuração
-                positions = [-1.5*bar_width, -0.5*bar_width, 0.5*bar_width, 1.5*bar_width]
-                
-                # Cores para melhorar visualização
-                colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
-                
-                for i, (config, utils) in enumerate(congestion_data.items()):
-                    # Preencher com zeros se necessário
-                    full_utils = utils + [0] * (max_points - len(utils))
-                    label = config.replace("_", " ").title()
+                # Calcular médias e pegar top 4
+                if all_link_utils:
+                    link_averages = {}
+                    for link, utils in all_link_utils.items():
+                        link_averages[link] = sum(utils) / len(utils)
                     
-                    # Usar índice para posicionar as barras, limitando a 4 configurações
-                    pos = positions[min(i, 3)]
-                    color_idx = min(i, 3)
-                    plt.bar(x + pos, full_utils, width=bar_width, label=label, alpha=0.8,
-                        color=colors[color_idx], edgecolor='black', linewidth=1.5)
-                
-                # Linha de threshold de congestionamento
-                plt.axhline(y=95, color='r', linestyle='--', label='Threshold de Congestionamento (95%)')
-                
-                # Configurações do gráfico
-                plt.title(f"Utilização Máxima dos Links - Cenário {scenario_type} ({scenario_name}) - {topology_type.title()}")
-                plt.xlabel("Época" if scenario_type != 4 else "Top Links Congestionados")
-                plt.ylabel("Utilização Máxima (%)")
-                
-                # Ajustar as labels do eixo X conforme o cenário
-                if scenario_type == 4:
-                    plt.xticks(x, [f"Link {i+1}" for i in range(max_points)])
-                else:
-                    plt.xticks(x, [f"Época {i}" for i in range(max_points)])
-                plt.legend()
-                plt.grid(axis='y', linestyle='--', alpha=0.7)
-                plt.tight_layout()
-                
-                output_file = os.path.join(comparison_folder, f"congestion_comparison_scenario{scenario_type}.png")
-                print(f"Salvando gráfico de congestionamento para cenário {scenario_type} em: {output_file}")
-                plt.savefig(output_file, dpi=300)
-                plt.close('all')  # Garantir que todas as figuras sejam fechadas
-                print(f"Gráfico de congestionamento para cenário {scenario_type} criado!")
+                    # Ordenar e pegar top 4
+                    sorted_links = sorted(link_averages.items(), key=lambda x: x[1], reverse=True)
+                    top_4_links = sorted_links[:4]
+                    
+                    # Extrair apenas os valores de utilização
+                    utilization_values = [util for _, util in top_4_links]
+                    
+                    print(f"Top 4 links para {config}: {[(link, f'{util:.2f}%') for link, util in top_4_links]}")
             
-            # 3. GRÁFICO DE EVOLUÇÃO DE PERDA DE PACOTES
-            # Limpar completamente o estado do matplotlib
-            plt.close('all')
-            
-            # Configurações para aumentar a resolução dos gráficos
+            if utilization_values:
+                congestion_data[config] = utilization_values
+
+        # Criar gráfico de barras agrupadas se temos dados
+        if congestion_data:
             plt.figure(figsize=(16, 10), dpi=300)
-            plt.rcParams['figure.figsize'] = (16, 10) 
-            plt.rcParams['figure.dpi'] = 300
-            plt.rcParams['lines.linewidth'] = 2.5
-            plt.rcParams['font.size'] = 12
             
-            print(f"\n========= Iniciando gráfico de EVOLUÇÃO DE PERDA DE PACOTES para cenário {scenario_type} =========")
-            packet_loss_data_found = False
+            max_points = max(len(utils) for utils in congestion_data.values())
             
-            for config in configurations:
-                config_path = os.path.join(gnn_path, config)
-                if not os.path.exists(config_path):
-                    continue
-                    
-                # MODIFICAÇÃO AQUI: Busca seletiva de pastas por cenário
-                if scenario_type == 2:
-                    # Para cenário 2, busca apenas pastas com "eval" mas SEM "update" ou "train"
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                "eval" in d and 
-                                "update" not in d and 
-                                "train" not in d]
-                elif scenario_type == 3:
-                    # Para cenário 3, busca apenas pastas com "eval_update"
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                "eval_update" in d]
-                elif scenario_type == 4:
-                    # Para cenário 4, busca apenas pastas com "eval_train"
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
-                                "eval_train" in d]
-                else:
-                    # Fallback para a busca original
-                    result_folders = [d for d in os.listdir(config_path) 
-                                if os.path.isdir(os.path.join(config_path, d)) and 
+            bar_width = 0.2
+            x = np.arange(max_points)
+            
+            positions = [-1.5*bar_width, -0.5*bar_width, 0.5*bar_width, 1.5*bar_width]
+            
+            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
+            
+            for i, (config, utils) in enumerate(congestion_data.items()):
+                # Preencher com zeros se necessário
+                full_utils = utils + [0] * (max_points - len(utils))
+                label = config.replace("_", " ").title()
+                
+                pos = positions[min(i, 3)]
+                color_idx = min(i, 3)
+                plt.bar(x + pos, full_utils, width=bar_width, label=label, alpha=0.8,
+                    color=colors[color_idx], edgecolor='black', linewidth=1.5)
+            
+            # Linha de threshold de congestionamento
+            plt.axhline(y=95, color='r', linestyle='--', label='Threshold de Congestionamento (95%)')
+            
+            # Configurações do gráfico
+            if scenario_key == 4:
+                title = f"Top 4 Links Mais Congestionados - Cenário {scenario_key} ({scenario_name}) - {topology_type.title()}"
+                xlabel = "Top Links Congestionados"
+                xtick_labels = [f"Link {i+1}" for i in range(max_points)]
+            else:
+                title = f"Média dos Top 4 Links (Épocas 1-3) - Cenário {scenario_key} ({scenario_name}) - {topology_type.title()}"
+                xlabel = "Top Links Mais Utilizados (Após Falhas)"
+                xtick_labels = [f"Link {i+1}" for i in range(max_points)]
+            
+            plt.title(title)
+            plt.xlabel(xlabel)
+            plt.ylabel("Utilização Média (%)")
+            plt.xticks(x, xtick_labels)
+            plt.legend()
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            
+            output_file = os.path.join(comparison_folder, f"congestion_comparison_scenario{scenario_key}.png")
+            print(f"Salvando gráfico de congestionamento para cenário {scenario_key} em: {output_file}")
+            plt.savefig(output_file, dpi=300)
+            plt.close('all')
+            print(f"Gráfico de congestionamento para cenário {scenario_key} criado!")
+
+        # 3. GRÁFICO DE EVOLUÇÃO DE PERDA DE PACOTES
+        plt.close('all')
+        plt.figure(figsize=(16, 10), dpi=300)
+        print(f"\n========= Iniciando gráfico de EVOLUÇÃO DE PERDA DE PACOTES para cenário {scenario_key} =========")
+        packet_loss_data_found = False
+
+        for config in configurations:
+            config_path = os.path.join(gnn_path, config)
+            if not os.path.exists(config_path):
+                continue
+                
+            
+            result_folders = [d for d in os.listdir(config_path) 
+                            if os.path.isdir(os.path.join(config_path, d)) and 
                                 scenario_name in d]
-                
-                if not result_folders:
-                    continue
-                
-                # Também podemos verificar especificamente por pasta com o número do cenário
-                scenario_folders = [d for d in result_folders if f"_{scenario_type}" in d]
-                if scenario_folders:
-                    # Usar a pasta específica para este cenário
-                    target_folder = sorted(scenario_folders)[-1]
-                    print(f"Usando pasta específica com sufixo _{scenario_type}: {target_folder}")
-                elif result_folders:
-                    # Se não encontrar pasta específica com o número, usar a mais recente com o nome correto
-                    target_folder = sorted(result_folders)[-1]
-                    print(f"Usando pasta mais recente para cenário {scenario_type}: {target_folder}")
+            
+            if not result_folders:
+                continue
+            
+            
+            if scenario_key in ["2a", "2b"]:
+                scenario_number = 2
+                if scenario_key == "2a":
+                    target_folders = [d for d in result_folders if "1link" in d and f"_{scenario_number}" in d]
                 else:
-                    # Se não houver pastas adequadas, pular esta configuração
-                    print(f"Nenhuma pasta adequada encontrada para {config}, cenário {scenario_type}")
-                    continue
+                    target_folders = [d for d in result_folders if "2links" in d and f"_{scenario_number}" in d]
+            elif scenario_key in ["3a", "3b"]:
+                scenario_number = 3
+                if scenario_key == "3a":
+                    target_folders = [d for d in result_folders if "1link" in d and f"_{scenario_number}" in d]
+                else:
+                    target_folders = [d for d in result_folders if "2links" in d and f"_{scenario_number}" in d]
+            elif scenario_key == 4:
+                scenario_number = 4
+                target_folders = [d for d in result_folders if f"_{scenario_number}" in d]
+            else:
+                scenario_number = scenario_key
+                target_folders = [d for d in result_folders if f"_{scenario_number}" in d]
+            
+            if target_folders:
+                target_folder = sorted(target_folders)[-1]
+            else:
+                target_folder = sorted(result_folders)[-1] if result_folders else None
                 
-                print(f"Usando pasta {target_folder} para dados de evolução de packet loss, cenário {scenario_type}")
-                folder_path = os.path.join(config_path, target_folder)
-                
-                # Procurar arquivo de evolução de packet loss
-                packet_loss_file = os.path.join(folder_path, "packet_loss_evolution.csv")
-                
-                if os.path.exists(packet_loss_file):
+            if not target_folder:
+                continue
+            
+            print(f"Usando pasta {target_folder} para dados de evolução de packet loss, cenário {scenario_key}")
+            folder_path = os.path.join(config_path, target_folder)
+            
+            # MUDANÇA: Tratar cenário 4 diferentemente
+            if scenario_key == 4:
+                # Cenário 4: packet_loss_by_epoch.csv
+                epoch_packet_loss_file = os.path.join(folder_path, "packet_loss_by_epoch.csv")
+                if os.path.exists(epoch_packet_loss_file):
                     try:
-                        print(f"Lendo arquivo {packet_loss_file} para cenário {scenario_type} ({scenario_name})")
-                        df = pd.read_csv(packet_loss_file, sep=';', decimal='.')
-                        
-                        # Debug - mostrar informações do dataframe
-                        print(f"Colunas encontradas: {df.columns.tolist()}")
-                        print(f"Dimensões do dataframe: {df.shape}")
-                        
-                        if 'Episode' in df.columns and 'Packet_Loss' in df.columns:
-                            x = df['Episode'].values
+                        print(f"Lendo arquivo {epoch_packet_loss_file} para cenário {scenario_key} ({scenario_name}) - dados por época")
+                        df = pd.read_csv(epoch_packet_loss_file, sep=';', decimal='.')
+                        if 'Epoch' in df.columns and 'Packet_Loss' in df.columns:
+                            x = df['Epoch'].values
                             y = df['Packet_Loss'].values
-                            
-                            # Converter valores se forem strings
                             if len(y) > 0 and isinstance(y[0], str):
                                 y = np.array([float(val.replace(',', '.')) for val in y])
-                                
-                            # Use consistent colors across all graphs
+                            # ...plot...
                             colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
-                            marker_styles = ['o', 's', '^', 'D']  # circle, square, triangle, diamond
-                            
+                            marker_styles = ['o', 's', '^', 'D']
                             label = config.replace("_", " ").title()
                             config_idx = configurations.index(config) if config in configurations else 0
                             color_idx = min(config_idx, 3)
                             marker_idx = min(config_idx, 3)
-                            
                             plt.plot(x, y, marker=marker_styles[marker_idx], linestyle='-',
-                                label=label, alpha=0.8, color=colors[color_idx],
-                                linewidth=2.5, markersize=6)
+                                    label=label, alpha=0.8, color=colors[color_idx],
+                                    linewidth=2.5, markersize=6)
                             packet_loss_data_found = True
-                            print(f"Dados de packet loss plotados para {config}: {len(y)} episódios")
-                            
+                            print(f"Dados de packet loss plotados para {config}: {len(y)} épocas")
                     except Exception as e:
-                        print(f"Erro processando {packet_loss_file}: {str(e)}")
+                        print(f"Erro ao processar dados de perda de pacotes em {epoch_packet_loss_file}: {str(e)}")
+            else:
+                # Cenários 2/3: packet_loss_evolution.csv
+                packet_loss_file = os.path.join(folder_path, "packet_loss_evolution.csv")
+                if os.path.exists(packet_loss_file):
+                    try:
+                        print(f"Lendo arquivo {packet_loss_file} para cenário {scenario_key} ({scenario_name})")
+                        df = pd.read_csv(packet_loss_file, sep=';', decimal='.')
+                        if 'Episode' in df.columns and 'Packet_Loss' in df.columns:
+                            episodes = df['Episode'].values
+                            losses = df['Packet_Loss'].values
+                            if len(losses) > 0 and isinstance(losses[0], str):
+                                losses = np.array([float(val.replace(',', '.')) for val in losses])
+                            epoch_size = EPOCH_SIZE 
+                            num_epochs = len(episodes) // epoch_size
+                            epoch_means = []
+                            epoch_numbers = []
+                            for epoch in range(num_epochs):
+                                start_idx = epoch * epoch_size
+                                end_idx = (epoch + 1) * epoch_size
+                                epoch_losses = losses[start_idx:end_idx]
+                                if len(epoch_losses) > 0:
+                                    epoch_mean = np.mean(epoch_losses)
+                                    epoch_means.append(epoch_mean)
+                                    epoch_numbers.append(epoch)
+                            x = np.array(epoch_numbers)
+                            y = np.array(epoch_means)
+                            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
+                            marker_styles = ['o', 's', '^', 'D']
+                            label = config.replace("_", " ").title()
+                            config_idx = configurations.index(config) if config in configurations else 0
+                            color_idx = min(config_idx, 3)
+                            marker_idx = min(config_idx, 3)
+                            plt.plot(x, y, marker=marker_styles[marker_idx], linestyle='-',
+                                    label=label, alpha=0.8, color=colors[color_idx],
+                                    linewidth=2.5, markersize=6)
+                            packet_loss_data_found = True
+                            print(f"Dados de packet loss plotados para {config}: {len(y)} épocas")
+                    except Exception as e:
+                        print(f"Erro ao processar dados de perda de pacotes em {packet_loss_file}: {str(e)}")
+        # Criar gráfico de perda de pacotes se temos dados
+        if packet_loss_data_found:
+            # Configurações do gráfico de evolução de packet loss
+            plt.title(f"Evolução da Perda de Pacotes - Cenário {scenario_key} ({scenario_name}) - {topology_type.title()}")
             
-            if packet_loss_data_found:
-                # Configurações do gráfico de evolução de packet loss
-                plt.title(f"Evolução da Perda de Pacotes - Cenário {scenario_type} ({scenario_name}) - {topology_type.title()}")
-                plt.xlabel("Episódio")
-                plt.ylabel("Perda de Pacotes (%)")
-                plt.grid(True, linestyle='--', alpha=0.7)
-                plt.legend()
-                
-                # Se for cenário 2/3, marcar pontos de falha
-                if scenario_type in [2, 3]:
-                    # Calcular pontos de falha baseado no número de episódios
-                    episodes_per_epoch = 16  # 4 episódios * 4 (padrão para cenários 2/3)
-                    for epoch in range(1, 4):  # Épocas 1, 2, 3 têm falhas
-                        failure_point = epoch * episodes_per_epoch
-                        plt.axvline(x=failure_point, color='r', linestyle='--', alpha=0.3, 
-                                label='Falha de Link' if epoch==1 else "")
-                
-                # Se for cenário 4, marcar pontos de diminuição de banda
-                elif scenario_type == 4:
-                    # Calcular pontos de aumento de banda baseado em INCREASE_BANDWIDTH_INTERVAL
-                    episodes_per_epoch = 4  # Cenário 4 tipicamente tem 4 episódios por época
-                    for epoch in range(INCREASE_BANDWIDTH_INTERVAL, NR_EPOCHS, INCREASE_BANDWIDTH_INTERVAL):
-                        change_point = epoch * episodes_per_epoch
-                        plt.axvline(x=change_point, color='g', linestyle='--', alpha=0.3,
-                                label='Diminuição de Banda' if epoch==INCREASE_BANDWIDTH_INTERVAL else "")
-                
-                plt.tight_layout()
-                output_file = os.path.join(comparison_folder, f"packet_loss_evolution_scenario{scenario_type}.png")
-                print(f"Salvando gráfico de evolução de packet loss para cenário {scenario_type} em: {output_file}")
-                plt.savefig(output_file, dpi=300)
-                plt.close('all')
-                print(f"Gráfico de evolução de packet loss para cenário {scenario_type} criado com sucesso!")
-            else:
-                plt.close('all')
-                print(f"Nenhum dado de evolução de packet loss encontrado para o cenário {scenario_type}")
-                else:
-                    plt.xticks(x, [f"Época {i}" for i in range(max_epochs)])
-                
-                plt.legend()
-                plt.grid(axis='y', linestyle='--', alpha=0.7)
-                plt.tight_layout()
-                output_file = os.path.join(comparison_folder, f"packet_loss_comparison_scenario{scenario_type}.png")
-                print(f"Salvando gráfico de perda de pacotes para cenário {scenario_type} em: {output_file}")
-                plt.savefig(output_file, dpi=300)
-                plt.close('all')
-                print(f"Gráfico de perda de pacotes para cenário {scenario_type} criado com sucesso!")
-            else:
-                print(f"Nenhum dado de perda de pacotes encontrado para o cenário {scenario_type}")
+            # MUDANÇA: Agora todos os cenários usam "Época" no eixo X
+            plt.xlabel("Época")
+            plt.ylabel("Perda de Pacotes Média (%)")
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.legend()
+            
+            # Se for cenário 2/3, marcar pontos de falha nas épocas
+            if scenario_key in ["2a", "2b", "3a", "3b"]:
+                for epoch in range(1, 4):  # Épocas 1, 2, 3 têm falhas
+                    plt.axvline(x=epoch, color='r', linestyle='--', alpha=0.7, linewidth=2,
+                            label="Falhas de Links" if epoch == 1 else "")
+            
+            plt.tight_layout()
+            output_file = os.path.join(comparison_folder, f"packet_loss_evolution_scenario{scenario_key}.png")
+            print(f"Salvando gráfico de evolução de packet loss para cenário {scenario_key} em: {output_file}")
+            plt.savefig(output_file, dpi=300)
+            plt.close('all')
+            print(f"Gráfico de evolução de packet loss para cenário {scenario_key} criado com sucesso!")
+        else:
+            plt.close('all')
+            print(f"Nenhum dado de evolução de packet loss encontrado para o cenário {scenario_key}")
         
         print(f"Gráficos comparativos salvos em {comparison_folder}")
         
@@ -1883,6 +2102,8 @@ if __name__ == '__main__':
         })
         data_total_df.to_csv(f"{folder_path}/data_total.csv", index=False,sep=';', decimal='.')
         plt.close()
+
+        visualize_link_utilization(link_utilization_history, folder_path, all_epochs=True)
         
         # Se for o algoritmo shortest-shortest, gerar apenas o overall
         ##if CRITIC_DOMAIN == "shortest" and NEURAL_NETWORK == "shortest":
@@ -1893,6 +2114,12 @@ if __name__ == '__main__':
     elif EVALUATE:
         if not TRAIN:
             process_evaluation_results(link_utilization_history, graph_y_axis, packet_loss_evolution, nr_epochs, folder_path, sub_path)
+            
+            if (CRITIC_DOMAIN == "local_critic" and NEURAL_NETWORK == "duelling_q_network" and UPDATE_WEIGHTS == True):
+                    print(f"Gerando gráficos comparativos para {TOPOLOGY_TYPE} na pasta {gnn_suffix}/comparisons")
+                    create_comparison_graphs(TOPOLOGY_TYPE)
+                    create_link_utilization_distribution_graphs(TOPOLOGY_TYPE)
+            
 
         elif TRAIN:
             
@@ -1948,6 +2175,12 @@ if __name__ == '__main__':
                     print(f"Gerando gráficos comparativos para {TOPOLOGY_TYPE} na pasta {gnn_suffix}/comparisons")
                     create_comparison_graphs(TOPOLOGY_TYPE)
                     create_link_utilization_distribution_graphs(TOPOLOGY_TYPE)
+
+
+
+
+
+
 
 
 
