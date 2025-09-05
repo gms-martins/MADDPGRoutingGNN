@@ -17,7 +17,7 @@ import csv
 
 from Link import Link
 from NetworkComponent import NetworkComponent
-from environmental_variables import EPOCH_SIZE, STATE_SIZE, NR_MAX_LINKS, EVALUATE,UPDATE_WEIGHTS, MODIFIED_NETWORK, NUMBER_OF_PATHS, TOPOLOGY_TYPE, TRAIN , PATH_SIMULATION, MAX_BANDWIDTH_MULTIPLIER,BANDWIDTH_INCREASE_FACTOR,SAVE_REMOVED_LINKS_SCENARIO4, STABILIZE_BANDWIDTH, STABILIZE_AFTER_MULTIPLIER, INCREASE_BANDWIDTH_INTERVAL, NR_ACTIVE_CONNECTIONS, CRITIC_DOMAIN, NEURAL_NETWORK, USE_GNN
+from environmental_variables import EPOCH_SIZE, STATE_SIZE, NR_MAX_LINKS, EVALUATE,UPDATE_WEIGHTS, MODIFIED_NETWORK, NUMBER_OF_PATHS, TOPOLOGY_TYPE, TRAIN , PATH_SIMULATION, MAX_BANDWIDTH_MULTIPLIER,BANDWIDTH_INCREASE_FACTOR,SAVE_REMOVED_LINKS_SCENARIO4, STABILIZE_BANDWIDTH, STABILIZE_AFTER_MULTIPLIER, INCREASE_BANDWIDTH_INTERVAL, NR_ACTIVE_CONNECTIONS, CRITIC_DOMAIN, NEURAL_NETWORK, USE_GNN, NUM_LINKS_TO_REMOVE
 
 REMOVED_EDGES = {1: None, 2: None, 3: None}  # Armazenar links removidos por época
 SCENARIO_2_COMPLETED = False  # Flag para identificar quando o cenário 2 foi executado
@@ -662,13 +662,14 @@ class NetworkEngine:
         scenario3_file = f"{PATH_SIMULATION}/scenario3_removed_edges_{TOPOLOGY_TYPE}.json"
         current_topology = TOPOLOGY_TYPE
         
-        # Definir quantos links serão alterados em cada modificação
+        # Definir quantos links serão alterados em cada modificação baseado na variável
+        # Agora remove NUM_LINKS_TO_REMOVE links cumulativamente
         if mod == 1:
-            nr_links_changed = 1
+            nr_links_changed = min(NUM_LINKS_TO_REMOVE, 1)  # Remove 1º link
         elif mod == 2:
-            nr_links_changed = 1 
+            nr_links_changed = min(NUM_LINKS_TO_REMOVE - 1, 1) if NUM_LINKS_TO_REMOVE > 1 else 0  # Remove 2º link se necessário
         elif mod == 3:
-            nr_links_changed = 1 
+            nr_links_changed = min(NUM_LINKS_TO_REMOVE - 2, 1) if NUM_LINKS_TO_REMOVE > 2 else 0  # Remove 3º link se necessário 
 
         edges = []
         change = []
@@ -692,12 +693,12 @@ class NetworkEngine:
                         if "topology" in edges_data and edges_data["topology"] == current_topology:
                             print(f"Reutilizando links removidos da topologia {current_topology} para cenário 2")
                             
-                            # Carregar links salvos anteriormente
-                            REMOVED_EDGES = {
-                                1: [tuple(e) for e in edges_data.get("1", [])],
-                                2: [tuple(e) for e in edges_data.get("2", [])],
-                                3: [tuple(e) for e in edges_data.get("3", [])]
-                            }
+                            # Carregar links salvos anteriormente, apenas até NUM_LINKS_TO_REMOVE
+                            REMOVED_EDGES = {}
+                            for i in range(NUM_LINKS_TO_REMOVE):
+                                key = str(i + 1)
+                                if key in edges_data:
+                                    REMOVED_EDGES[i + 1] = [tuple(e) for e in edges_data[key]]
                             SCENARIO_2_COMPLETED = True
                 except:
                     print("Erro ao carregar arquivo de links removidos para cenário 2")
@@ -761,36 +762,37 @@ class NetworkEngine:
                     if len(valid_links) >= 6:  # Precisamos de pelo menos 6 links válidos
                         break
                 
-                # Para o cenário 2, usar os links de índice 3, 4, 5 (4º, 5º e 6º mais usados)
-                if len(valid_links) >= 6:
-                    # Definir links para o cenário 2 (4º, 5º e 6º mais críticos)
-                    REMOVED_EDGES = {
-                        1: [valid_links[3][0]],  # 4º link mais crítico
-                        2: [valid_links[4][0]],  # 5º link mais crítico
-                        3: [valid_links[5][0]]   # 6º link mais crítico
-                    }
-                    print(f"Links selecionados para cenário 2 (4º, 5º, 6º mais críticos):")
-                    print(f"Mod 1: {REMOVED_EDGES[1]}")
-                    print(f"Mod 2: {REMOVED_EDGES[2]}")
-                    print(f"Mod 3: {REMOVED_EDGES[3]}")
+                # Para o cenário 2, selecionar links baseado em NUM_LINKS_TO_REMOVE
+                if len(valid_links) >= max(NUM_LINKS_TO_REMOVE, 3):
+                    # Definir links para o cenário 2 baseado em NUM_LINKS_TO_REMOVE
+                    # Se NUM_LINKS_TO_REMOVE = 1: usa apenas o 4º link
+                    # Se NUM_LINKS_TO_REMOVE = 2: usa 4º e 5º links
+                    # Se NUM_LINKS_TO_REMOVE = 3: usa 4º, 5º e 6º links
+                    start_index = 3  # Começar do 4º link mais crítico (índice 3)
+                    REMOVED_EDGES = {}
+                    
+                    for i in range(NUM_LINKS_TO_REMOVE):
+                        REMOVED_EDGES[i + 1] = [valid_links[start_index + i][0]]
+                    
+                    print(f"Links selecionados para cenário 2 ({NUM_LINKS_TO_REMOVE} links):")
+                    for i in range(NUM_LINKS_TO_REMOVE):
+                        print(f"Mod {i + 1}: {REMOVED_EDGES[i + 1]}")
                 else:
-                    # Fallback: selecionar links aleatórios se não tivermos 6 links válidos
-                    print("Não há links críticos suficientes. Usando seleção aleatória.")
-                    REMOVED_EDGES = {
-                        1: [random.choice(edges)],
-                        2: [random.choice(edges)],
-                        3: [random.choice(edges)]
-                    }
+                    # Fallback: selecionar links aleatórios se não tivermos links suficientes
+                    print(f"Não há links críticos suficientes. Usando seleção aleatória para {NUM_LINKS_TO_REMOVE} links.")
+                    REMOVED_EDGES = {}
+                    selected_links = random.sample(edges, min(NUM_LINKS_TO_REMOVE, len(edges)))
+                    
+                    for i in range(NUM_LINKS_TO_REMOVE):
+                        REMOVED_EDGES[i + 1] = [selected_links[i]]
                 
                 SCENARIO_2_COMPLETED = True
                 
                 # Salvar links para uso futuro
-                edges_data = {
-                    "topology": current_topology,
-                    "1": [[e[0], e[1]] for e in REMOVED_EDGES[1]],
-                    "2": [[e[0], e[1]] for e in REMOVED_EDGES[2]],
-                    "3": [[e[0], e[1]] for e in REMOVED_EDGES[3]]
-                }
+                edges_data = {"topology": current_topology}
+                
+                for i in range(NUM_LINKS_TO_REMOVE):
+                    edges_data[str(i + 1)] = [[e[0], e[1]] for e in REMOVED_EDGES[i + 1]]
                 
                 with open(scenario2_file, 'w') as f:
                     json.dump(edges_data, f, indent=4)
@@ -818,12 +820,12 @@ class NetworkEngine:
                         if "topology" in edges_data and edges_data["topology"] == current_topology:
                             print(f"Reutilizando links removidos da topologia {current_topology} para cenário 3")
                             
-                            # Carregar links salvos anteriormente
-                            REMOVED_EDGES = {
-                                1: [tuple(e) for e in edges_data.get("1", [])],
-                                2: [tuple(e) for e in edges_data.get("2", [])],
-                                3: [tuple(e) for e in edges_data.get("3", [])]
-                            }
+                            # Carregar links salvos anteriormente, apenas até NUM_LINKS_TO_REMOVE
+                            REMOVED_EDGES = {}
+                            for i in range(NUM_LINKS_TO_REMOVE):
+                                key = str(i + 1)
+                                if key in edges_data:
+                                    REMOVED_EDGES[i + 1] = [tuple(e) for e in edges_data[key]]
                             global SCENARIO_3_COMPLETED
                             if 'SCENARIO_3_COMPLETED' not in globals():
                                 SCENARIO_3_COMPLETED = False
@@ -833,7 +835,7 @@ class NetworkEngine:
             
             # Se não temos links determinados, identificar os links mais críticos para o cenário 3
             if not ('SCENARIO_3_COMPLETED' in globals() and SCENARIO_3_COMPLETED):
-                print("Identificando links MAIS críticos (1º, 2º, 3º) para o cenário 3...")
+                print(f"Identificando links MAIS críticos (top {NUM_LINKS_TO_REMOVE}) para o cenário 3...")
                 
                 # Análise de uso de links em caminhos mais curtos
                 link_usage = {}
@@ -887,40 +889,37 @@ class NetworkEngine:
                     self.graph_topology.add_edge(*link)
                     
                     # Quando tivermos links suficientes, parar
-                    if len(valid_links) >= 3:  # Precisamos de pelo menos 3 links válidos
+                    if len(valid_links) >= NUM_LINKS_TO_REMOVE:  # Precisamos de pelo menos NUM_LINKS_TO_REMOVE links válidos
                         break
                 
-                if len(valid_links) >= 3:
-                    # Para o cenário 3, usar os 3 links mais críticos (1º, 2º e 3º)
-                    REMOVED_EDGES = {
-                        1: [valid_links[0][0]],  # 1º link mais crítico
-                        2: [valid_links[1][0]],  # 2º link mais crítico
-                        3: [valid_links[2][0]]   # 3º link mais crítico
-                    }
-                    print(f"Links mais críticos (1º, 2º, 3º) selecionados para cenário 3:")
-                    print(f"Mod 1: {REMOVED_EDGES[1]} (1º mais usado)")
-                    print(f"Mod 2: {REMOVED_EDGES[2]} (2º mais usado)")
-                    print(f"Mod 3: {REMOVED_EDGES[3]} (3º mais usado)")
+                if len(valid_links) >= NUM_LINKS_TO_REMOVE:
+                    # Para o cenário 3, usar os links mais críticos baseado em NUM_LINKS_TO_REMOVE
+                    REMOVED_EDGES = {}
+                    
+                    for i in range(NUM_LINKS_TO_REMOVE):
+                        REMOVED_EDGES[i + 1] = [valid_links[i][0]]  # Do 1º link mais crítico em diante
+                    
+                    print(f"Links mais críticos selecionados para cenário 3 ({NUM_LINKS_TO_REMOVE} links):")
+                    for i in range(NUM_LINKS_TO_REMOVE):
+                        print(f"Mod {i + 1}: {REMOVED_EDGES[i + 1]} ({i + 1}º mais usado)")
                 else:
-                    # Fallback: selecionar links aleatórios se não tivermos 3 links válidos
-                    print("Não há links críticos suficientes. Usando seleção aleatória.")
-                    REMOVED_EDGES = {
-                        1: [random.choice(edges)],
-                        2: [random.choice(edges)],
-                        3: [random.choice(edges)]
-                    }
+                    # Fallback: selecionar links aleatórios se não tivermos links suficientes
+                    print(f"Não há links críticos suficientes. Usando seleção aleatória para {NUM_LINKS_TO_REMOVE} links.")
+                    REMOVED_EDGES = {}
+                    selected_links = random.sample(edges, min(NUM_LINKS_TO_REMOVE, len(edges)))
+                    
+                    for i in range(NUM_LINKS_TO_REMOVE):
+                        REMOVED_EDGES[i + 1] = [selected_links[i]]
                 
                 if 'SCENARIO_3_COMPLETED' not in globals():
                     SCENARIO_3_COMPLETED = False
                 SCENARIO_3_COMPLETED = True
                 
                 # Salvar links para uso futuro
-                edges_data = {
-                    "topology": current_topology,
-                    "1": [[e[0], e[1]] for e in REMOVED_EDGES[1]],
-                    "2": [[e[0], e[1]] for e in REMOVED_EDGES[2]],
-                    "3": [[e[0], e[1]] for e in REMOVED_EDGES[3]]
-                }
+                edges_data = {"topology": current_topology}
+                
+                for i in range(NUM_LINKS_TO_REMOVE):
+                    edges_data[str(i + 1)] = [[e[0], e[1]] for e in REMOVED_EDGES[i + 1]]
                 
                 with open(scenario3_file, 'w') as f:
                     json.dump(edges_data, f, indent=4)
@@ -929,7 +928,7 @@ class NetworkEngine:
             # Usar os links determinados para esta modificação
             if 'SCENARIO_3_COMPLETED' in globals() and SCENARIO_3_COMPLETED and mod in REMOVED_EDGES and REMOVED_EDGES[mod]:
                 change = REMOVED_EDGES[mod]
-                print(f"Removendo link crítico {mod}/3 para cenário 3: {change}")
+                print(f"Removendo link crítico {mod}/{NUM_LINKS_TO_REMOVE} para cenário 3: {change}")
             else:
                 # Fallback para seleção aleatória
                 change = random.sample(edges, min(nr_links_changed, len(edges)))

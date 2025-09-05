@@ -19,7 +19,7 @@ from MultiAgentReplayBuffer import MultiAgentReplayBuffer
 from NetworkEngine import NetworkEngine
 from NetworkEngine import REMOVED_EDGES, SCENARIO_2_COMPLETED
 from NetworkEnv import NetworkEnv
-from environmental_variables import STATE_SIZE, EPOCH_SIZE, NUMBER_OF_AGENTS, NR_EPOCHS, EVALUATE, CRITIC_DOMAIN, SIM_NR, TRAIN, NEURAL_NETWORK, MODIFIED_NETWORK, NOTES, TOPOLOGY_TYPE, UPDATE_WEIGHTS, PATH_SIMULATION, NUMBER_OF_PATHS, NUMBER_OF_HOSTS,BANDWIDTH_INCREASE_FACTOR,INCREASE_BANDWIDTH_INTERVAL,STABILIZE_BANDWIDTH , STABILIZE_AFTER_MULTIPLIER, SAVE_REMOVED_LINKS_SCENARIO4, MAX_BANDWIDTH_MULTIPLIER, CRITIC_DOMAIN, NUMBER_OF_PATHS, NUMBER_OF_AGENTS, NR_EPOCHS, EPOCH_SIZE, PATH_SIMULATION, SIM_NR, MODIFIED_NETWORK, USE_GNN
+from environmental_variables import STATE_SIZE, EPOCH_SIZE, NUMBER_OF_AGENTS, NR_EPOCHS, EVALUATE, CRITIC_DOMAIN, SIM_NR, TRAIN, NEURAL_NETWORK, MODIFIED_NETWORK, NOTES, TOPOLOGY_TYPE, UPDATE_WEIGHTS, PATH_SIMULATION, NUMBER_OF_PATHS, NUMBER_OF_HOSTS,BANDWIDTH_INCREASE_FACTOR,INCREASE_BANDWIDTH_INTERVAL,STABILIZE_BANDWIDTH , STABILIZE_AFTER_MULTIPLIER, SAVE_REMOVED_LINKS_SCENARIO4, MAX_BANDWIDTH_MULTIPLIER, CRITIC_DOMAIN, NUMBER_OF_PATHS, NUMBER_OF_AGENTS, NR_EPOCHS, EPOCH_SIZE, PATH_SIMULATION, SIM_NR, MODIFIED_NETWORK, USE_GNN, NUM_LINKS_TO_REMOVE
 #, GRAPH_BATCH_SIZE
 
 
@@ -201,7 +201,10 @@ if __name__ == '__main__':
 
     # Adicionar modificação da rede separadamente
     if MODIFIED_NETWORK and (EVALUATE or TRAIN):
-        folder_name = f"{learning}_{MODIFIED_NETWORK}"
+        if MODIFIED_NETWORK == "remove_edges":
+            folder_name = f"{learning}_{MODIFIED_NETWORK}_{NUM_LINKS_TO_REMOVE}links"
+        else:
+            folder_name = f"{learning}_{MODIFIED_NETWORK}"
     else:
         folder_name = learning 
         
@@ -278,6 +281,14 @@ if __name__ == '__main__':
 
     total_package_loss_nr = 0
     total_packets_sent_nr = 0
+    
+    # Estrutura para armazenar evolução de packet loss por episódio (similar às recompensas)
+    if EVALUATE and not TRAIN:
+        packet_loss_evolution = [[0 for _ in range(EPOCH_SIZE*4)] for _ in range(nr_epochs)]
+    elif EVALUATE and TRAIN:
+        packet_loss_evolution = [[0 for _ in range(EPOCH_SIZE)] for _ in range(nr_epochs)]
+    else:
+        packet_loss_evolution = []
 
     
     #if (EVALUATE and TRAIN):
@@ -517,9 +528,21 @@ if __name__ == '__main__':
 
             if EVALUATE and not TRAIN: #and UPDATE_WEIGHTS:
                 graph_y_axis[epoch][e] = int(total_reward) 
+                # Calcular packet loss para este episódio
+                if eng.statistics['nr_package_sent'] > 0:
+                    episode_packet_loss = (eng.statistics['nr_package_loss'] / eng.statistics['nr_package_sent']) * 100
+                else:
+                    episode_packet_loss = 0
+                packet_loss_evolution[epoch][e] = episode_packet_loss
             elif EVALUATE and TRAIN:
                 graph_y_axis[epoch][e] = int(total_reward)
                 y_axis_training[epoch] = sum(total_epoch_reward) / len(total_epoch_reward)
+                # Calcular packet loss para este episódio
+                if eng.statistics['nr_package_sent'] > 0:
+                    episode_packet_loss = (eng.statistics['nr_package_loss'] / eng.statistics['nr_package_sent']) * 100
+                else:
+                    episode_packet_loss = 0
+                packet_loss_evolution[epoch][e] = episode_packet_loss
                 
 
             # print(f"{'OG' if epoch % 2 == 0 else 'NEW'} REWARD {total_reward}")
@@ -710,9 +733,10 @@ if __name__ == '__main__':
         
         return top_links
     
-    def collect_evaluation_data(graph_y_axis, nr_epochs):
+    def collect_evaluation_data(graph_y_axis, packet_loss_evolution, nr_epochs):
         """Collect reward data and calculate metrics for each epoch."""
         all_rewards = []
+        all_packet_loss = []
         failure_points = []
         epoch_averages = []
         links_removed_info = []
@@ -731,13 +755,16 @@ if __name__ == '__main__':
             # Add all episode rewards to the list
             for e in range(episodes_in_epoch):
                 all_rewards.append(graph_y_axis[epoch][e])
+                # Add packet loss data if we have it
+                if packet_loss_evolution and len(packet_loss_evolution) > epoch and len(packet_loss_evolution[epoch]) > e:
+                    all_packet_loss.append(packet_loss_evolution[epoch][e])
             
             # Mark failure points
             if epoch > 0:
                 collect_removed_links_info(epoch, links_removed_info)
                 failure_points.append(sum([len(graph_y_axis[e]) for e in range(epoch)]))
         
-        return all_rewards, failure_points, epoch_averages, links_removed_info
+        return all_rewards, all_packet_loss, failure_points, epoch_averages, links_removed_info
     
     def collect_removed_links_info(epoch, links_removed_info, is_scenario4=False):
         if not is_scenario4:
@@ -803,7 +830,7 @@ if __name__ == '__main__':
         
         return convergence_times
     
-    def save_evaluation_results(folder_path, sub_path, all_rewards, epoch_averages, 
+    def save_evaluation_results(folder_path, sub_path, all_rewards, all_packet_loss, epoch_averages, 
                            convergence_times, links_removed_info):
         """Save all evaluation results to files."""
         # Save detailed reward evolution
@@ -812,6 +839,14 @@ if __name__ == '__main__':
             'Reward': all_rewards,
         })
         detailed_df.to_csv(f"{folder_path}/reward_evolution.csv", index=False, sep=';', decimal='.')
+        
+        # Save detailed packet loss evolution if we have data
+        if all_packet_loss and len(all_packet_loss) > 0:
+            packet_loss_df = pd.DataFrame({
+                'Episode': np.arange(len(all_packet_loss)),
+                'Packet_Loss': all_packet_loss,
+            })
+            packet_loss_df.to_csv(f"{folder_path}/packet_loss_evolution.csv", index=False, sep=';', decimal='.')
         
         # Save epoch averages
         with open(f"{folder_path}/{sub_path}.txt", "a") as data_file:
@@ -863,6 +898,41 @@ if __name__ == '__main__':
         plt.ylabel("Reward")
         plt.legend()
         plt.savefig(f"{folder_path}/reward_with_failures.png")
+        plt.close()
+
+    def plot_packet_loss_with_failures(all_packet_loss, failure_points, folder_path):
+        """Create and save a plot showing packet loss evolution with marked failure points."""
+        if not all_packet_loss or len(all_packet_loss) == 0:
+            return
+            
+        plt.figure(figsize=(12, 6))
+        
+        # Add vertical lines for failures
+        for i, point in enumerate(failure_points):
+            if i == 0:
+                plt.axvline(x=point, color='r', linestyle='--', alpha=0.7, label="Link Failures")
+            else:
+                plt.axvline(x=point, color='r', linestyle='--', alpha=0.7)
+        
+        # Plot the packet loss series
+        plt.plot(all_packet_loss, label="Packet Loss per Episode (%)", color='orange')
+        
+        # Auto-adjust vertical scale with 10% margin
+        if all_packet_loss:
+            y_min = min(all_packet_loss) * 0.9 if min(all_packet_loss) > 0 else 0
+            y_max = max(all_packet_loss) * 1.1
+            plt.ylim(y_min, y_max)
+        
+        # Set title based on the scenario
+        if UPDATE_WEIGHTS:
+            plt.title(f"Packet Loss Evolution with Network Failures - {CRITIC_DOMAIN} {NEURAL_NETWORK} - {MODIFIED_NETWORK}: Update Weights\n")
+        else:
+            plt.title(f"Packet Loss Evolution with Network Failures - {CRITIC_DOMAIN} {NEURAL_NETWORK} - {MODIFIED_NETWORK}\n")
+        
+        plt.xlabel("Episodes")
+        plt.ylabel("Packet Loss (%)")
+        plt.legend()
+        plt.savefig(f"{folder_path}/packet_loss_with_failures.png")
         plt.close()
 
     def detect_congestion(link_utilization_history, threshold=95):
@@ -961,7 +1031,77 @@ if __name__ == '__main__':
             plt.savefig(f"{folder_path}/reward_after_stabilization.png")
             plt.close()
 
-    def process_evaluation_results(link_utilization_history, graph_y_axis, nr_epochs, folder_path, sub_path, check_congestion=False):
+    def plot_packet_loss_scen4(packet_loss_per_epoch, folder_path, bandwidth_increase_interval):
+        """Plota a evolução da perda de pacotes média por época para cenário 4."""
+        if not packet_loss_per_epoch or len(packet_loss_per_epoch) == 0:
+            return
+            
+        plt.figure(figsize=(12, 6))
+        
+        x = np.arange(0, len(packet_loss_per_epoch))
+        plt.plot(x, packet_loss_per_epoch, marker='o', linestyle='-', color='orange', label='Perda de Pacotes Média (%)')
+        
+        # Linha de tendência
+        z = np.polyfit(x, packet_loss_per_epoch, 1)
+        p = np.poly1d(z)
+        plt.plot(x, p(x), "r--", label=f"Tendência (y = {z[0]:.3f}x + {z[1]:.3f})")
+        
+        # Calcular o ponto de estabilização (quando bandwidth atinge 150%)
+        stabilization_point = None
+        if hasattr(eng, 'bandwidth_stabilized') or 'STABILIZE_AFTER_MULTIPLIER' in globals():
+            bw_factor = 1.0
+            for i in range(len(packet_loss_per_epoch)):
+                if i > 0 and i % bandwidth_increase_interval == 0:
+                    bw_factor *= BANDWIDTH_INCREASE_FACTOR
+                    if bw_factor >= STABILIZE_AFTER_MULTIPLIER:
+                        stabilization_point = i
+                        break
+        
+        # Salvar dados incluindo informação sobre estabilização
+        detailed_df = pd.DataFrame({
+            'Epoch': np.arange(len(packet_loss_per_epoch)),
+            'Average_Packet_Loss': [f"{value:.3f}" for value in packet_loss_per_epoch],
+            'Stabilized': [(stabilization_point is not None and i >= stabilization_point) for i in range(len(packet_loss_per_epoch))]
+        })
+        detailed_df.to_csv(f"{folder_path}/packet_loss_evolution.csv", index=False, sep=';', decimal='.')
+        
+        plt.title("Evolução da Perda de Pacotes Média por Época")
+        plt.xlabel("Época")
+        plt.ylabel("Perda de Pacotes Média (%)")
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(f"{folder_path}/packet_loss_evolution.png")
+        plt.close()
+        
+        # Se houver ponto de estabilização, criar segundo gráfico mostrando apenas após estabilização
+        if stabilization_point is not None and stabilization_point < len(packet_loss_per_epoch):
+            plt.figure(figsize=(12, 6))
+            
+            # Dados apenas após estabilização
+            post_stab_x = np.arange(len(packet_loss_per_epoch) - stabilization_point)
+            post_stab_y = packet_loss_per_epoch[stabilization_point:]
+            
+            plt.plot(post_stab_x, post_stab_y, marker='o', linestyle='-', color='orange', 
+                    label='Perda de Pacotes Após Estabilização')
+            
+            # Linha de tendência após estabilização
+            if len(post_stab_y) > 1:
+                post_z = np.polyfit(post_stab_x, post_stab_y, 1)
+                post_p = np.poly1d(post_z)
+                plt.plot(post_stab_x, post_p(post_stab_x), "r--", 
+                    label=f"Tendência Após Estabilização (y = {post_z[0]:.3f}x + {post_z[1]:.3f})")
+            
+            plt.title("Evolução da Perda de Pacotes Após Estabilização da Largura de Banda")
+            plt.xlabel("Épocas Após Estabilização")
+            plt.ylabel("Perda de Pacotes Média (%)")
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(f"{folder_path}/packet_loss_after_stabilization.png")
+            plt.close()
+
+    def process_evaluation_results(link_utilization_history, graph_y_axis, packet_loss_evolution, nr_epochs, folder_path, sub_path, check_congestion=False):
         """Processa resultados de avaliação para qualquer cenário EVALUATE"""
         plt.figure(figsize=(12, 6))
 
@@ -970,14 +1110,19 @@ if __name__ == '__main__':
             visualize_link_utilization(link_utilization_history, folder_path, epoch)
         
         # Collect all evaluation data
-        all_rewards, failure_points, epoch_averages, links_removed_info = collect_evaluation_data(graph_y_axis, nr_epochs)
+        all_rewards, all_packet_loss, failure_points, epoch_averages, links_removed_info = collect_evaluation_data(graph_y_axis, packet_loss_evolution, nr_epochs)
         
         # Analyze convergence after failure points
         convergence_times = analyze_convergence(graph_y_axis, nr_epochs)
         
         # Save results to files
-        save_evaluation_results(folder_path, sub_path, all_rewards, epoch_averages,convergence_times, links_removed_info)        # Create and save the rewards plot
+        save_evaluation_results(folder_path, sub_path, all_rewards, all_packet_loss, epoch_averages, convergence_times, links_removed_info)
+        
+        # Create and save the rewards plot
         plot_rewards_with_failures(all_rewards, failure_points, folder_path)
+        
+        # Create and save the packet loss plot
+        plot_packet_loss_with_failures(all_packet_loss, failure_points, folder_path)
         
     def create_link_utilization_distribution_graphs(topology_type):
         """Cria gráficos de distribuição de utilização dos links para todos os cenários."""
@@ -1561,7 +1706,7 @@ if __name__ == '__main__':
                 plt.close('all')  # Garantir que todas as figuras sejam fechadas
                 print(f"Gráfico de congestionamento para cenário {scenario_type} criado!")
             
-            # 3. GRÁFICO DE PERDA DE PACOTES
+            # 3. GRÁFICO DE EVOLUÇÃO DE PERDA DE PACOTES
             # Limpar completamente o estado do matplotlib
             plt.close('all')
             
@@ -1572,8 +1717,8 @@ if __name__ == '__main__':
             plt.rcParams['lines.linewidth'] = 2.5
             plt.rcParams['font.size'] = 12
             
-            print(f"\n========= Iniciando gráfico de PERDA DE PACOTES para cenário {scenario_type} =========")
-            packet_loss_data = {}
+            print(f"\n========= Iniciando gráfico de EVOLUÇÃO DE PERDA DE PACOTES para cenário {scenario_type} =========")
+            packet_loss_data_found = False
             
             for config in configurations:
                 config_path = os.path.join(gnn_path, config)
@@ -1622,110 +1767,82 @@ if __name__ == '__main__':
                     print(f"Nenhuma pasta adequada encontrada para {config}, cenário {scenario_type}")
                     continue
                 
-                print(f"Usando pasta {target_folder} para dados de perda de pacotes, cenário {scenario_type}")
+                print(f"Usando pasta {target_folder} para dados de evolução de packet loss, cenário {scenario_type}")
                 folder_path = os.path.join(config_path, target_folder)
                 
-                # Buscar o arquivo de dados do cenário - tente múltiplos padrões possíveis
-                possible_files = [
-                    # Padrão principal conforme definido na variável sub_path
-                    os.path.join(folder_path, f"{NR_EPOCHS}epo_{EPOCH_SIZE}epi_{TOPOLOGY_TYPE}_{scenario_name}.txt"),
-                    # Buscar qualquer arquivo .txt na pasta
-                    *[os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith(".txt")]
-                ]
+                # Procurar arquivo de evolução de packet loss
+                packet_loss_file = os.path.join(folder_path, "packet_loss_evolution.csv")
                 
-                data_file = None
-                for possible_file in possible_files:
-                    if os.path.exists(possible_file):
-                        data_file = possible_file
-                        break
-                
-                if data_file:
+                if os.path.exists(packet_loss_file):
                     try:
-                        packet_loss_values = []
+                        print(f"Lendo arquivo {packet_loss_file} para cenário {scenario_type} ({scenario_name})")
+                        df = pd.read_csv(packet_loss_file, sep=';', decimal='.')
                         
-                        with open(data_file, 'r') as f:
-                            lines = f.readlines()
+                        # Debug - mostrar informações do dataframe
+                        print(f"Colunas encontradas: {df.columns.tolist()}")
+                        print(f"Dimensões do dataframe: {df.shape}")
+                        
+                        if 'Episode' in df.columns and 'Packet_Loss' in df.columns:
+                            x = df['Episode'].values
+                            y = df['Packet_Loss'].values
                             
-                            # Encontrar linhas com dados de perda de pacotes
-                            for line in lines:
-                                # Para a rede original (Época 0)
-                                if "Packets lost Original network (number):" in line:
-                                    # Extrair o valor entre : e %
-                                    value_str = line.split(":")[1].strip().replace("%", "").strip()
-                                    try:
-                                        value = float(value_str)
-                                        packet_loss_values.append(value)
-                                    except ValueError:
-                                        print(f"Erro ao converter valor: '{value_str}' para float")
+                            # Converter valores se forem strings
+                            if len(y) > 0 and isinstance(y[0], str):
+                                y = np.array([float(val.replace(',', '.')) for val in y])
                                 
-                                # Para as redes modificadas (Épocas 1+)
-                                elif "Packets lost Modified network (number)" in line:
-                                    value_str = line.split(":")[1].strip().replace("%", "").strip()
-                                    try:
-                                        value = float(value_str)
-                                        packet_loss_values.append(value)
-                                    except ValueError:
-                                        print(f"Erro ao converter valor: '{value_str}' para float")
-                                        
-                                # Tentar para o cenário de treinamento
-                                elif "Packets lost training:" in line:
-                                    print(f"Encontrada linha de perda de pacotes para cenário 4: '{line.strip()}'")
-                                    value_str = line.split(":")[1].strip().replace("%", "").strip()
-                                    try:
-                                        value = float(value_str)
-                                        packet_loss_values.append(value)
-                                        print(f"Valor extraído com sucesso: {value}%")
-                                    except ValueError as e:
-                                        print(f"Erro ao converter valor: '{value_str}' para float - {str(e)}")
-                                    
-                        if packet_loss_values:
-                            packet_loss_data[config] = packet_loss_values
-                            print(f"Encontrados {len(packet_loss_values)} valores de perda de pacotes em {data_file}")
+                            # Use consistent colors across all graphs
+                            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
+                            marker_styles = ['o', 's', '^', 'D']  # circle, square, triangle, diamond
+                            
+                            label = config.replace("_", " ").title()
+                            config_idx = configurations.index(config) if config in configurations else 0
+                            color_idx = min(config_idx, 3)
+                            marker_idx = min(config_idx, 3)
+                            
+                            plt.plot(x, y, marker=marker_styles[marker_idx], linestyle='-',
+                                label=label, alpha=0.8, color=colors[color_idx],
+                                linewidth=2.5, markersize=6)
+                            packet_loss_data_found = True
+                            print(f"Dados de packet loss plotados para {config}: {len(y)} episódios")
                             
                     except Exception as e:
-                        print(f"Erro ao processar dados de perda de pacotes em {data_file}: {str(e)}")
+                        print(f"Erro processando {packet_loss_file}: {str(e)}")
             
-            # Criar gráfico de perda de pacotes se temos dados
-            if packet_loss_data:
-                plt.figure(figsize=(16, 10), dpi=300)
-                
-                # Determinar número máximo de épocas por configuração
-                max_epochs = max(len(values) for values in packet_loss_data.values())
-                
-                # Criar barras agrupadas
-                bar_width = 0.2
-                x = np.arange(max_epochs)
-                
-                # Posições para as barras de cada configuração
-                positions = [-1.5*bar_width, -0.5*bar_width, 0.5*bar_width, 1.5*bar_width]
-                
-                # Cores para melhorar visualização
-                colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12']
-                
-                for i, (config, values) in enumerate(packet_loss_data.items()):
-                    # Preencher com zeros se necessário
-                    full_values = values + [0] * (max_epochs - len(values))
-                    label = config.replace("_", " ").title()
-                    
-                    # Usar índice para posicionar as barras
-                    pos = positions[min(i, 3)]
-                    color_idx = min(i, 3)
-                    plt.bar(x + pos, full_values, width=bar_width, label=label, alpha=0.8, 
-                        color=colors[color_idx], edgecolor='black', linewidth=1.5)
-                
-                # Configurações do gráfico
-                plt.title(f"Perda de Pacotes por Época - Cenário {scenario_type} ({scenario_name}) - {topology_type.title()}")
-                plt.xlabel("Época")
+            if packet_loss_data_found:
+                # Configurações do gráfico de evolução de packet loss
+                plt.title(f"Evolução da Perda de Pacotes - Cenário {scenario_type} ({scenario_name}) - {topology_type.title()}")
+                plt.xlabel("Episódio")
                 plt.ylabel("Perda de Pacotes (%)")
+                plt.grid(True, linestyle='--', alpha=0.7)
+                plt.legend()
                 
-                # Ajustar as labels do eixo X
+                # Se for cenário 2/3, marcar pontos de falha
                 if scenario_type in [2, 3]:
-                    # Para cenários 2/3, mostrar Época 0 (original) e Épocas 1+ (com falhas)
-                    epoch_labels = ["Original"] + [f"Falha {i+1}" for i in range(max_epochs-1)]
-                    plt.xticks(x, epoch_labels)
-                    
-                    # Adicionar linha vertical para separar a rede original das modificadas
-                    plt.axvline(x=0.5, color='r', linestyle='--', alpha=0.3)
+                    # Calcular pontos de falha baseado no número de episódios
+                    episodes_per_epoch = 16  # 4 episódios * 4 (padrão para cenários 2/3)
+                    for epoch in range(1, 4):  # Épocas 1, 2, 3 têm falhas
+                        failure_point = epoch * episodes_per_epoch
+                        plt.axvline(x=failure_point, color='r', linestyle='--', alpha=0.3, 
+                                label='Falha de Link' if epoch==1 else "")
+                
+                # Se for cenário 4, marcar pontos de diminuição de banda
+                elif scenario_type == 4:
+                    # Calcular pontos de aumento de banda baseado em INCREASE_BANDWIDTH_INTERVAL
+                    episodes_per_epoch = 4  # Cenário 4 tipicamente tem 4 episódios por época
+                    for epoch in range(INCREASE_BANDWIDTH_INTERVAL, NR_EPOCHS, INCREASE_BANDWIDTH_INTERVAL):
+                        change_point = epoch * episodes_per_epoch
+                        plt.axvline(x=change_point, color='g', linestyle='--', alpha=0.3,
+                                label='Diminuição de Banda' if epoch==INCREASE_BANDWIDTH_INTERVAL else "")
+                
+                plt.tight_layout()
+                output_file = os.path.join(comparison_folder, f"packet_loss_evolution_scenario{scenario_type}.png")
+                print(f"Salvando gráfico de evolução de packet loss para cenário {scenario_type} em: {output_file}")
+                plt.savefig(output_file, dpi=300)
+                plt.close('all')
+                print(f"Gráfico de evolução de packet loss para cenário {scenario_type} criado com sucesso!")
+            else:
+                plt.close('all')
+                print(f"Nenhum dado de evolução de packet loss encontrado para o cenário {scenario_type}")
                 else:
                     plt.xticks(x, [f"Época {i}" for i in range(max_epochs)])
                 
@@ -1775,7 +1892,7 @@ if __name__ == '__main__':
 
     elif EVALUATE:
         if not TRAIN:
-            process_evaluation_results(link_utilization_history, graph_y_axis, nr_epochs, folder_path, sub_path)
+            process_evaluation_results(link_utilization_history, graph_y_axis, packet_loss_evolution, nr_epochs, folder_path, sub_path)
 
         elif TRAIN:
             
@@ -1799,6 +1916,18 @@ if __name__ == '__main__':
 
             compare_early_late_links(link_utilization_history, folder_path, nr_epochs)
             plot_epoch_rewards_scen4(y_axis_training, folder_path, INCREASE_BANDWIDTH_INTERVAL)
+            
+            # Calcular médias de packet loss por época para o cenário 4
+            if packet_loss_evolution and len(packet_loss_evolution) > 0:
+                packet_loss_averages = []
+                for epoch in range(nr_epochs):
+                    if epoch < len(packet_loss_evolution) and len(packet_loss_evolution[epoch]) > 0:
+                        epoch_avg = sum(packet_loss_evolution[epoch]) / len(packet_loss_evolution[epoch])
+                        packet_loss_averages.append(epoch_avg)
+                    else:
+                        packet_loss_averages.append(0)
+                
+                plot_packet_loss_scen4(packet_loss_averages, folder_path, INCREASE_BANDWIDTH_INTERVAL)
 
             # Gerar gráficos comparativos apenas quando for o cenário shortest_shortest
             # Este deve ser o último cenário a ser executado para cada configuração

@@ -23,6 +23,9 @@ train_configs = [
     ("shortest", "shortest")
 ]
 
+# Configurações de número de links a remover (cenários 2 e 3)
+links_to_remove_configs = [1, 2]  # Diferentes números de links para testar
+
 test_scenarios = [
     (False, False, False),  # Cenário 1: Apenas treino (executado primeiro para gerar modelos)
     (True, False, False),   # Cenário 2: Apenas avaliar (usa modelos do cenário 1)
@@ -52,24 +55,30 @@ for use_gnn in [False]: # True para usar GNN
                 print(f"Pulando configuração 'shortest-shortest' com GNN ativada (não recomendado)")
                 continue  # Simplesmente pula para a próxima combinação sem executar
             
-            # Para todas as outras combinações, executar normalmente
-            for eval_flag, update_flag, train_flag in test_scenarios:
-                    # Gerar cenário
-                    if not eval_flag:
-                        scenario_name = "train"
-                    elif eval_flag and not train_flag and not update_flag:
-                        scenario_name = "eval"
-                    elif eval_flag and not train_flag and update_flag:
-                        scenario_name = "eval_update"
-                    else:
-                        scenario_name = "eval_train"
-                    
-                    # Adicionar sufixo GNN à pasta para os resultados com GNN
-                    gnn_suffix = "_GNN" if use_gnn else ""
-                    timestamp_with_gnn = f"{timestamp}_{critic}_{network}{gnn_suffix}"                # Gerar código atualizado para as variáveis
-                    env_file = os.path.join(script_dir, "environmental_variables.py")
-                    with open(env_file, "w") as f:
-                        f.write(f'''
+            # Loop para diferentes números de links removidos
+            for num_links_to_remove in links_to_remove_configs:
+                print(f"\n--- Configurando para remover {num_links_to_remove} links ---")
+                
+                # Para todas as outras combinações, executar normalmente
+                for eval_flag, update_flag, train_flag in test_scenarios:
+                        # Gerar cenário
+                        if not eval_flag:
+                            scenario_name = "train"
+                        elif eval_flag and not train_flag and not update_flag:
+                            scenario_name = "eval"
+                        elif eval_flag and not train_flag and update_flag:
+                            scenario_name = "eval_update"
+                        else:
+                            scenario_name = "eval_train"
+                        
+                        # Adicionar sufixo GNN à pasta para os resultados com GNN
+                        gnn_suffix = "_GNN" if use_gnn else ""
+                        timestamp_with_gnn = f"{timestamp}_{critic}_{network}{gnn_suffix}"                
+                        
+                        # Gerar código atualizado para as variáveis
+                        env_file = os.path.join(script_dir, "environmental_variables.py")
+                        with open(env_file, "w") as f:
+                            f.write(f'''
 NR_ACTIVE_CONNECTIONS = 10
 NUMBER_OF_PATHS = 3
 
@@ -80,6 +89,7 @@ NOTES = ""
 PATH_SIMULATION = "{script_dir}"
 SIM_NR = "{timestamp_with_gnn}"
 
+NUM_LINKS_TO_REMOVE = {num_links_to_remove}
 
 INCREASE_BANDWIDTH_INTERVAL = 3
 BANDWIDTH_INCREASE_FACTOR = 4
@@ -103,18 +113,18 @@ MODIFIED_NETWORK = "remove_edges"
 # Controla se a GNN é usada ou não
 USE_GNN = {use_gnn}
 ''')
-                    
-                    # Garantir que o arquivo seja salvo completamente
-                    time.sleep(1)
-                    
-                    # Exibir configuração atual
-                    print(f"Executando {gnn_status}: {critic} | {network} | EVAL={eval_flag}, UPDATE={update_flag}, TRAIN={train_flag}")
-                    
-                    # Usar o caminho completo e executar em um novo ambiente
-                    subprocess.run(["python", script_path], cwd=script_dir)
-                    
-                    # Forçar um atraso entre execuções para garantir que os
-                    # arquivos temporários sejam liberados e o cache seja resetado
-                    time.sleep(2)
+                        
+                        # Garantir que o arquivo seja salvo completamente
+                        time.sleep(1)
+                        
+                        # Exibir configuração atual
+                        print(f"Executando {gnn_status}: {critic} | {network} | {num_links_to_remove} links | EVAL={eval_flag}, UPDATE={update_flag}, TRAIN={train_flag}")
+                        
+                        # Usar o caminho completo e executar em um novo ambiente
+                        subprocess.run(["python", script_path], cwd=script_dir)
+                        
+                        # Forçar um atraso entre execuções para garantir que os
+                        # arquivos temporários sejam liberados e o cache seja resetado
+                        time.sleep(2)
                 
                 
