@@ -416,12 +416,36 @@ if __name__ == '__main__':
                         dismiss_indexes.append(index)
                     else:
                         state = all_dst_states
-                    states.append(state)
+
+                        #ter alguma flag para deicidr o se é ataque ou não FGSM
+                        #if attack
+                        state_adv = state
+                        epsilon = 0.05
+
+                        n = eng.get_number_neighbors(host)
+
+                        if n != 0 : 
+                            for i in range(n):
+
+                                bw = state[i]
+
+                                # O gradinete da loss, deve depender se o critic é local ou central
+
+                                #bw_adv = state + epsilon * sign(grad_state)
+                                #state_adv[i] = bw_adv
+
 
                     if CRITIC_DOMAIN == "central_critic":
                         critic_states.append(np.concatenate((eng.get_link_usage(), np.array(all_dsts)), axis=0))
                     elif CRITIC_DOMAIN == "local_critic":     
                         critic_states.append(state)
+
+                    states.append(state)
+                
+                #Duvidas:
+                # Tentar entender como vou fazer a função de loss 
+                # Ainda n sei bem se coloco um Flag para ataques (no caso de ser ataque não mete nos estados o ataque), como fosse um cenario
+                # Acho que faria sentido ter os dois ao mesmo tempo mas tenho que ver o codigo melhor na parte dos graficos para isso
 
                 # Escolher ações com dados do grafo quando GNN está habilitada
                 actions = maddpg_agents.choose_action(states, graph_data if USE_GNN else None)

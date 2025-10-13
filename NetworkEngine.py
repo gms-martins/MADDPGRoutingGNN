@@ -433,6 +433,18 @@ class NetworkEngine:
             if available < min_bw:
                 min_bw = available
         return min_bw
+    
+
+    #saber quantos vizinhos tem
+    def get_number_neighbors(self, host):
+
+        hostC = self.components.get(host)
+        hostC: NetworkComponent
+
+        if hostC is None:
+            return 0
+        return len(hostC.neighbors)
+    
 
     def get_state(self, host, n=1):
 

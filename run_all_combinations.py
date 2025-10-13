@@ -4,8 +4,10 @@ import time
 import sys
 import importlib
 
-script_dir = os.environ.get("PATH_SIMULATION", "c:/Users/draim/OneDrive - FCT NOVA/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates")
-#script_dir = os.environ.get("PATH_SIMULATION", "/workspaces/RRC_DRL_Updates")
+
+#script_dir = os.environ.get("PATH_SIMULATION", "c:/Users/Lenovo/Documents/Tese/RRC_DRL_Update/RRC_DRL_Updates")
+
+script_dir = os.environ.get("PATH_SIMULATION", "/workspaces/MADDPGRoutingGNN")
 script_path = os.path.join(script_dir, "MADDPG.py")
 
 # Configurações de topologias com seus respectivos parâmetros
@@ -17,9 +19,9 @@ topology_configs = [
 
 # Combinações de treino
 train_configs = [
-    ("shortest", "shortest"),
-    ("central_critic", "duelling_q_network"),
-    ("central_critic", "simple_q_network"),
+    #("shortest", "shortest"),
+    #("central_critic", "duelling_q_network"),
+    #("central_critic", "simple_q_network"),
     ("local_critic", "duelling_q_network")
 ]
 
@@ -36,7 +38,7 @@ timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 # Primeiro executa todas as configurações sem GNN (original)
-for use_gnn in [False]: # True para usar GNN
+for use_gnn in [True]: # True para usar GNN
     gnn_status = "COM GNN" if use_gnn else "SEM GNN (ORIGINAL)"
     print(f"\n\n{'=' * 60}")
     print(f"INICIANDO EXECUÇÕES {gnn_status}")
@@ -55,9 +57,9 @@ for use_gnn in [False]: # True para usar GNN
                 # Cenários 2 e 3: Avaliação sem treino (com ou sem update)
                 if eval_flag and not train_flag:
                     for num_links_to_remove in [1, 2]:
-                        if eval_flag and not train_flag and not update_flag:
+                        if eval_flag and not train_flag and not update_flag: #Cenário 2
                             scenario_name = f"eval_{num_links_to_remove}link{'s' if num_links_to_remove > 1 else ''}"
-                        elif eval_flag and not train_flag and update_flag:
+                        elif eval_flag and not train_flag and update_flag: #Cenário 3
                             scenario_name = f"eval_update_{num_links_to_remove}link{'s' if num_links_to_remove > 1 else ''}"
 
                         gnn_suffix = "_GNN" if use_gnn else ""
@@ -106,10 +108,10 @@ USE_GNN = {use_gnn}
                         time.sleep(2)
                 else:
                     # Cenários 1 e 4 (apenas treino ou treino após falha)
-                    if not eval_flag:
+                    if not eval_flag: #Cenário 1
                         scenario_name = "train"
                         num_links_to_remove = 0
-                    else:
+                    else: #Cenário 4
                         scenario_name = "eval_train"
                         num_links_to_remove = 0
 
