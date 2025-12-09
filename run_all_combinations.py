@@ -12,9 +12,9 @@ script_path = os.path.join(script_dir, "MADDPG.py")
 
 # Configurações de topologias com seus respectivos parâmetros
 topology_configs = [
-    ("internet", 25, 25, 11),
+    #("internet", 25, 25, 11),
     #("arpanet", 33, 33, 6),
-    #("service_provider", 65, 65, 4)
+    ("service_provider", 65, 65, 4)
 ]
 
 # Combinações de treino
@@ -38,7 +38,7 @@ timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 # Primeiro executa todas as configurações sem GNN (original)
-for use_gnn in [True]: # True para usar GNN
+for use_gnn in [False]: # True para usar GNN
     gnn_status = "COM GNN" if use_gnn else "SEM GNN (ORIGINAL)"
     print(f"\n\n{'=' * 60}")
     print(f"INICIANDO EXECUÇÕES {gnn_status}")

@@ -21,8 +21,9 @@ from MultiAgentReplayBuffer import MultiAgentReplayBuffer
 from NetworkEngine import NetworkEngine
 from NetworkEngine import REMOVED_EDGES, SCENARIO_2_COMPLETED
 from NetworkEnv import NetworkEnv
-from environmental_variables import STATE_SIZE, EPOCH_SIZE, NUMBER_OF_AGENTS, NR_EPOCHS, EVALUATE, CRITIC_DOMAIN, SIM_NR, TRAIN, NEURAL_NETWORK, MODIFIED_NETWORK, NOTES, TOPOLOGY_TYPE, UPDATE_WEIGHTS, PATH_SIMULATION, NUMBER_OF_PATHS, NUMBER_OF_HOSTS,BANDWIDTH_INCREASE_FACTOR,INCREASE_BANDWIDTH_INTERVAL,STABILIZE_BANDWIDTH , STABILIZE_AFTER_MULTIPLIER, SAVE_REMOVED_LINKS_SCENARIO4, MAX_BANDWIDTH_MULTIPLIER, CRITIC_DOMAIN, NUMBER_OF_PATHS, NUMBER_OF_AGENTS, NR_EPOCHS, EPOCH_SIZE, PATH_SIMULATION, SIM_NR, MODIFIED_NETWORK, USE_GNN, NUM_LINKS_TO_REMOVE
+from environmental_variables import STATE_SIZE, EPOCH_SIZE, NUMBER_OF_AGENTS, NR_EPOCHS, EVALUATE, CRITIC_DOMAIN, SIM_NR, TRAIN, NEURAL_NETWORK, MODIFIED_NETWORK, NOTES, TOPOLOGY_TYPE, UPDATE_WEIGHTS, PATH_SIMULATION, NUMBER_OF_PATHS, NUMBER_OF_HOSTS,BANDWIDTH_INCREASE_FACTOR,INCREASE_BANDWIDTH_INTERVAL,STABILIZE_BANDWIDTH , STABILIZE_AFTER_MULTIPLIER, SAVE_REMOVED_LINKS_SCENARIO4, MAX_BANDWIDTH_MULTIPLIER, CRITIC_DOMAIN, NUMBER_OF_PATHS, NUMBER_OF_AGENTS, NR_EPOCHS, EPOCH_SIZE, PATH_SIMULATION, SIM_NR, MODIFIED_NETWORK, USE_GNN, NUM_LINKS_TO_REMOVE, FGSM_ATTACK
 #, GRAPH_BATCH_SIZE
+
 
 
 class MADDPG:
@@ -137,6 +138,67 @@ class MADDPG:
         for agent in self.agents:
             agent.update_network_parameters()
 
+    def perturbed_GNN(self,host,state,index):
+         
+        n = eng.get_number_neighbors(host)
+
+        if n != 0 : 
+                            
+            # Convert bandwidth states to tensor with gradients 
+            processing_device = self.agents[index].actor.device
+
+            state_array = np.array([state], dtype=np.float32)
+            state_tensor = T.tensor(state_array, dtype=T.float).to(processing_device)
+
+            grad_state = T.tensor(state_array, requires_grad=True,dtype=T.float).to(processing_device)
+                                            
+            # Get action from actor
+            action_tensor = self.agents[index].actor.forward(state_tensor)
+            action = action_tensor.detach().cpu().numpy()[0]
+            
+            #best_action_idx = np.argmax(action) #debug
+
+            #print("Tensor action:", action_tensor)
+            #print("Chosen action index:", best_action_idx)
+
+            # Get Q-value from critic and calculate loss
+            critic_value = self.agents[index].critic.forward(grad_state , action_tensor)
+            loss = -critic_value
+            #print("Loss:", loss)
+
+            # Calculate gradients w.r.t bandwidth states
+            loss.backward()
+                                
+            # Apply FGSM formula - perturb only bandwidth values
+            #variar o epsilon de uma melhor maneira
+            epsilon = 0.05
+            grad_sign = T.sign(grad_state.grad)
+            #print("grad_sign:", grad_sign[:, :n])
+
+            mask = T.zeros_like(grad_sign)       
+            mask[:, :n] = 1.0      
+            perturbation = epsilon * grad_sign * mask              
+
+            with T.no_grad():
+                perturbed_bw = state_tensor + perturbation
+                #print("perturbed_bw_1:", perturbed_bw[:, :n])
+                perturbed_bw[:, :n] = T.clamp(perturbed_bw[:, :n], 0.0, 1.0)
+                #print("perturbed_bw_2:", perturbed_bw[:, :n])
+                                
+            #print("state_tensor:", state_tensor)
+            #print("perturbed_bw:", perturbed_bw)
+                                
+            perturbed = perturbed_bw.detach().cpu().numpy()[0]
+            #print("perturbed:", perturbed)
+
+            return perturbed
+        
+        else:
+            #Deve ter sempre um vizinho
+            return state
+  
+
+
 if __name__ == '__main__':    
     eng = NetworkEngine()
     env = NetworkEnv(eng)
@@ -162,6 +224,7 @@ if __name__ == '__main__':
     elif CRITIC_DOMAIN == "shortest":
         critic_dim = len(eng.get_link_usage()) + NUMBER_OF_AGENTS
         critic_dims = [critic_dim for i in range(NUMBER_OF_AGENTS)]
+
     maddpg_agents = MADDPG(agent_dims, critic_dims, NUMBER_OF_AGENTS, n_action,
                            fa1=10, fa2=64, fc1=15, fc2=64,
                            alpha=0.002, beta=0.0002, tau=0.001, chkpt_dir='.\\tmp\\maddpg\\') #valores ajustados para aprendizagem mais rápida
@@ -280,6 +343,8 @@ if __name__ == '__main__':
         y_axis_training = np.zeros(NR_EPOCHS)
         graph_y_axis = [[0 for _ in range(EPOCH_SIZE)] for _ in range(nr_epochs)]
 
+
+    #é aqui feito a copia do base_weights para o agent_files e depois damos load a esses pesos para actor,actor_target,critic,critic_target
     if EVALUATE:
         # Restaurar pesos base ANTES de carregar os pesos para o cenário
         base_weights_dir = f"{PATH_SIMULATION}/base_weights_{TOPOLOGY_TYPE}_{CRITIC_DOMAIN}_{NEURAL_NETWORK}"
@@ -331,13 +396,14 @@ if __name__ == '__main__':
         total_epoch_reward = []
         total_epoch_pck_loss = 0
         total_epoch_pck_sent = 0
-  
-        if EVALUATE and not TRAIN and epoch != 0:
 
-            if MODIFIED_NETWORK == "remove_edges": 
-                eng.remove_topology_edges(epoch)
-            if MODIFIED_NETWORK == "add_edges":
-                eng.add_topology_edges(epoch)
+        #no meu não removo links
+        #if EVALUATE and not TRAIN and epoch != 0:
+
+            #if MODIFIED_NETWORK == "remove_edges": 
+                #eng.remove_topology_edges(epoch)
+            #if MODIFIED_NETWORK == "add_edges":
+                #eng.add_topology_edges(epoch)
 
         if not EVALUATE or (EVALUATE and TRAIN):
             episode_size = EPOCH_SIZE
@@ -348,6 +414,7 @@ if __name__ == '__main__':
 
         
         for e in range(episode_size):
+            #mudança de tm de 2 em 2 
             new_tm = e % 2 == 0
             env.reset(new_tm)
 
@@ -394,6 +461,11 @@ if __name__ == '__main__':
                         nodes.append(i)
                         bw = eng.bws.get(host, 0) / 100.0  # Normalizar BW para 0-1
                         node_features.append([bw])
+
+                        #st = eng.get_state(host, 1)
+                        #if FGSM_ATTACK:
+                            #st = maddpg_agents.perturbed_GNN(host,st,i)
+                        #node_features.append(st)
                     
                     for i, host_i in enumerate(all_hosts):
                         for j, host_j in enumerate(all_hosts):
@@ -406,6 +478,63 @@ if __name__ == '__main__':
                         'edge_index': np.array(edges, dtype=np.int64)
                     }
 
+                    #print("graph_data:",graph_data)
+
+                
+                if FGSM_ATTACK and CRITIC_DOMAIN == "central_critic":
+                    for index, host in enumerate(all_hosts):
+                        #saber o numero de links
+                        n = len(eng.links)
+
+                        processing_device = maddpg_agents.agents[index].actor.device
+
+                        g_state = np.concatenate((eng.get_link_usage(), np.array(all_dsts)), axis=0)
+                        g_state_array = np.array([g_state], dtype=np.float32)
+
+                        g_state_tensor = T.tensor(g_state_array, dtype=T.float).to(processing_device)
+                        g_grad_state = T.tensor(g_state_array, requires_grad=True, dtype=T.float).to(processing_device)
+
+                        # Get action from actor
+                        g_action_tensor = maddpg_agents.agents[index].actor.forward(g_state_tensor)
+                        g_action = g_action_tensor.detach().cpu().numpy()[0]
+                       
+                        #print("Tensor action:", action_tensor)
+                        #print("Chosen action index:", best_action_idx)
+
+                        # Get Q-value from critic and calculate loss
+                        critic_value = maddpg_agents.agents[index].critic.forward(g_grad_state , g_action_tensor)
+                        loss = -critic_value
+                        #print("Loss:", loss)
+
+                        # Calculate gradients w.r.t bandwidth states
+                        loss.backward()
+                                
+                        # Apply FGSM formula - perturb only bandwidth values
+                        #variar o epsilon de uma melhor maneira
+                        epsilon = 0.05
+                        g_grad_sign = T.sign(g_grad_state.grad)
+                        #print("grad_sign:", grad_sign[:, :n])
+
+                        mask = T.zeros_like(g_grad_state)       
+                        mask[:, :n] = 1.0      
+                        g_perturbation = epsilon * g_grad_sign * mask              
+
+                        with T.no_grad():
+                            g_perturbed_bw = g_state_tensor + g_perturbation
+                            #print("perturbed_bw_1:", perturbed_bw[:, :n])
+                            g_perturbed_bw[:, :n] = T.clamp(g_perturbed_bw[:, :n], 0.0, 1.0)
+                            #print("perturbed_bw_2:", perturbed_bw[:, :n])
+                                
+                        #print("state_tensor:", state_tensor)
+                        #print("perturbed_bw:", perturbed_bw)
+                                
+                        g_perturbed = g_perturbed_bw.detach().cpu().numpy()[0]
+                        #print("perturbed:", perturbed)
+
+                        state = g_perturbed
+
+                    
+
                 for index, host in enumerate(all_hosts):
                     all_dst_states = eng.get_state(host, 1)
                     dst = next_dsts.get(host, '')
@@ -417,35 +546,159 @@ if __name__ == '__main__':
                     else:
                         state = all_dst_states
 
-                        #ter alguma flag para deicidr o se é ataque ou não FGSM
-                        #if attack
-                        state_adv = state
-                        epsilon = 0.05
-
                         n = eng.get_number_neighbors(host)
 
-                        if n != 0 : 
-                            for i in range(n):
+                        if not FGSM_ATTACK:
 
-                                bw = state[i]
+                            csv_dir = "/workspaces/MADDPGRoutingGNN/test"
+                            csv_file = f"{csv_dir}/test_states.csv"
 
-                                # O gradinete da loss, deve depender se o critic é local ou central
+                            if not os.path.exists(csv_dir):
+                                    os.makedirs(csv_dir)
+                                
+                            write_header = (epoch == 0 and e == 0 and time_steps == 0)
+                            mode = 'w' if write_header else 'a'
+                                
+                            # Criar ou abrir arquivo CSV
+                            with open(csv_file, mode, newline='') as f:
+                                import csv
+                                writer = csv.writer(f, delimiter=';')
+                                    
+                                if write_header:
+                                    writer.writerow(['Host', 'Epoch', 'Episode', 'Time_Step', 'State_Original'])
+                                    
+                                # Converter arrays para strings para facilitar leitura
+                                state_str = ', '.join([f'{val:.2f}' for val in state[:n]])
+                                    
+                                # Escrever linha com dados
+                                writer.writerow([host, epoch, e, time_steps, state_str])
 
-                                #bw_adv = state + epsilon * sign(grad_state)
-                                #state_adv[i] = bw_adv
+                        #GNN
+                            #na forma como esta feito ele faz a media depois de tudo
+                            #Sabendo que o estado tem varias valores que não faz sentido fazer a media 
+                            #Problema de ser central critic, devo colocar nessa node_feature o estado dele especifico
 
 
-                    if CRITIC_DOMAIN == "central_critic":
+                        #local critic
+                            #ja foi implementado, ele percebe que as ações deles são mas 
+                            #implementar aquilo dos graficos
+                        
+
+                       #central critic 
+                            #estado maior 
+                            #problema 1: mesmo sendo central, ele usa sempre os estados para chegar a ação
+                            #problema 2: sendo central critic o critic utliza um estado maior , logo a forma como calculo o ataque FGSM não da porque eu não consigo 
+
+                            #caso não ataque:
+                                #ele usa o estado normal para ir buscar a ação
+                                #o estado do critic é maior
+                            #caso de ataque:
+                                #se for ataque eu tenho que colocar na mesm o ataque no state
+                                #mas para cacluar como o local não consigo usar o critic pois o tamanho do critic state é maior
+                                #posso ir caclucar o ataque a esse estado grande , com isso altero os valores dos links todos 
+                                #e a partir de alterar todos os links apenas faço o normal porque o atque foi a volta .
+
+
+                        if FGSM_ATTACK and not CRITIC_DOMAIN == "central_critic":
+
+                            #n = eng.get_number_neighbors(host)
+
+                            if n != 0 : 
+                            
+                                # Convert bandwidth states to tensor with gradients 
+                                processing_device = maddpg_agents.agents[index].actor.device
+
+                                state_array = np.array([state], dtype=np.float32)
+                                state_tensor = T.tensor(state_array, dtype=T.float).to(processing_device)
+
+                                grad_state = T.tensor(state_array, requires_grad=True,dtype=T.float).to(processing_device)
+                                        
+                                # Get action from actor
+                                action_tensor = maddpg_agents.agents[index].actor.forward(state_tensor)
+                                action = action_tensor.detach().cpu().numpy()[0]
+                                best_action_idx = np.argmax(action) #debug
+
+                                #print("Tensor action:", action_tensor)
+                                #print("Chosen action index:", best_action_idx)
+
+                                # Get Q-value from critic and calculate loss
+                                critic_value = maddpg_agents.agents[index].critic.forward(grad_state , action_tensor)
+                                loss = -critic_value
+                                #print("Loss:", loss)
+
+                                # Calculate gradients w.r.t bandwidth states
+                                loss.backward()
+                            
+                                # Apply FGSM formula - perturb only bandwidth values
+                                #variar o epsilon de uma melhor maneira
+                                epsilon = 0.03
+                                grad_sign = T.sign(grad_state.grad)
+                                #print("grad_sign:", grad_sign[:, :n])
+
+                                mask = T.zeros_like(grad_sign)       
+                                mask[:, :n] = 1.0      
+                                perturbation = epsilon * grad_sign * mask              
+
+                                with T.no_grad():
+                                    perturbed_bw = state_tensor + perturbation
+                                    #print("perturbed_bw_1:", perturbed_bw[:, :n])
+                                    perturbed_bw[:, :n] = T.clamp(perturbed_bw[:, :n], 0.0, 1.0)
+                                    #print("perturbed_bw_2:", perturbed_bw[:, :n])
+                            
+                                #print("state_tensor:", state_tensor)
+                                #print("perturbed_bw:", perturbed_bw)
+                            
+                                perturbed = perturbed_bw.detach().cpu().numpy()[0]
+                                #print("perturbed:", perturbed)
+                                #print("state:", state)
+    
+                                #state = perturbed
+
+                                #Alterar os links
+                                #eng.attack_change_links(host,perturbed)
+
+                                # NOVO: Salvar estados em CSV
+                                csv_dir = "/workspaces/MADDPGRoutingGNN/test"
+                                csv_file = f"{csv_dir}/test_attack_states.csv"
+
+                                if not os.path.exists(csv_dir):
+                                    os.makedirs(csv_dir)
+                                
+                                write_header = (epoch == 0 and e == 0 and time_steps == 0)
+                                mode = 'w' if write_header else 'a'
+                                
+                                # Criar ou abrir arquivo CSV
+                                with open(csv_file, mode, newline='') as f:
+                                    import csv
+                                    writer = csv.writer(f, delimiter=';')
+                                    
+                                    if write_header:
+                                        writer.writerow(['Host', 'Epoch', 'Episode', 'Time_Step', 'State_Original', 'State_Perturbed'])
+                                    
+                                    # Converter arrays para strings para facilitar leitura
+                                    state_str = ', '.join([f'{val:.2f}' for val in state[:n]])
+                                    perturbed_str = ', '.join([f'{val:.2f}' for val in perturbed[:n]])
+                                    
+                                    # Escrever linha com dados
+                                    writer.writerow([host, epoch, e, time_steps, state_str, perturbed_str])
+                                
+                                state = perturbed
+                            
+
+                    
+                    #caso de não ataque
+                    if CRITIC_DOMAIN == "central_critic" and not FGSM_ATTACK:
                         critic_states.append(np.concatenate((eng.get_link_usage(), np.array(all_dsts)), axis=0))
                     elif CRITIC_DOMAIN == "local_critic":     
                         critic_states.append(state)
 
                     states.append(state)
                 
-                #Duvidas:
-                # Tentar entender como vou fazer a função de loss 
-                # Ainda n sei bem se coloco um Flag para ataques (no caso de ser ataque não mete nos estados o ataque), como fosse um cenario
-                # Acho que faria sentido ter os dois ao mesmo tempo mas tenho que ver o codigo melhor na parte dos graficos para isso
+                #caso de ataque devo so colocar os estados depois de os atualizar todos 
+                #if CRITIC_DOMAIN == "central_critic" and FGSM_ATTACK:
+                    #for _ in range(len(all_hosts)):
+                        #critic_states.append(np.concatenate((eng.get_link_usage(), np.array(all_dsts)), axis=0))
+
 
                 # Escolher ações com dados do grafo quando GNN está habilitada
                 actions = maddpg_agents.choose_action(states, graph_data if USE_GNN else None)
@@ -473,7 +726,9 @@ if __name__ == '__main__':
                         else:
                             action = actions[index] # Exploitation - action of the neural network
                             other_count += 1 if action != 0 else 0
+
                         total_choices += 1
+
                         if TOPOLOGY_TYPE == "internet" or TOPOLOGY_TYPE == "arpanet":
                             if (host in eng.single_con_hosts):
                                 action = 0                #algoritmo tradicional

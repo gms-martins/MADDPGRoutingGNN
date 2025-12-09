@@ -16,28 +16,13 @@ class GNNProcessor(nn.Module):
     """
     Processador GNN para transformar o estado da rede antes de enviá-lo ao agente.
     Implementa uma Graph Convolutional Network simples.
-    
-    Diferenças entre GraphConv e GCNConv:
-    - GraphConv: Mais flexível, usa diferentes pesos para o nó central e vizinhos.
-      Formula: x_i = Σ(j ∈ N(i)) 1/sqrt(|N(i)|*|N(j)|) * (W1*x_i + W2*x_j)
-    
-    - GCNConv: Implementação de Kipf & Welling (2017), normalização simétrica.
-      Formula: x_i = W * Σ(j ∈ N(i)∪{i}) 1/sqrt(|N(i)|*|N(j)|) * x_j
-      
-    - GraphConv oferece maior expressividade com seus dois conjuntos de pesos.
-    - GCNConv é mais eficiente e usa menos parâmetros (compartilha pesos).
     """
     def __init__(self, input_dim, hidden_dim, output_dim):
         super(GNNProcessor, self).__init__()
         
         # Camadas GCN
-        # Versão com GraphConv (atual)
         self.conv1 = GraphConv(input_dim, hidden_dim)
         self.conv2 = GraphConv(hidden_dim, output_dim)
-        
-        # Versão com GCNConv (alternativa)
-        # self.conv1 = GCNConv(input_dim, hidden_dim)
-        # self.conv2 = GCNConv(hidden_dim, output_dim)
         
         # Camada extra para garantir dimensionalidade correta
         #self.fc_output = nn.Linear(output_dim, output_dim)
@@ -126,7 +111,7 @@ class Agent:
         self.use_gnn = USE_GNN
         if self.use_gnn:
             # Input_dim=1 (característica por nó), hidden_dim=16, output_dim=fa1 (igual à dim da camada fc1 do ator)
-            self.gnn_processor = GNNProcessor(input_dim=1, hidden_dim=16, output_dim=fa1)
+            self.gnn_processor = GNNProcessor(input_dim=1, hidden_dim=16, output_dim= STATE_SIZE)
         else:
             self.gnn_processor = None
 
@@ -155,7 +140,7 @@ class Agent:
             
             # PASSO 2: Preparar o array de observação
             observation_array = np.array([processed_observation], dtype=np.float32)
-            
+            '''
             # PASSO 3: Ajustar as dimensões se necessário
             if observation_array.shape[1] != self.actor.fc1.in_features:
                 # Determinar se precisamos adicionar padding ou truncar
@@ -168,6 +153,7 @@ class Agent:
                     # Caso 2: A saída da GNN é maior que o esperado - truncar
                     observation_array = observation_array[:, :self.actor.fc1.in_features]
                     print(f"AVISO: Truncando estado processado por GNN: {processed_observation.shape} -> {observation_array.shape}")
+            '''
         else:
             # PASSO ALTERNATIVO: Usar a observação original se GNN estiver desabilitada
             observation_array = np.array([observation], dtype=np.float32)
@@ -216,8 +202,7 @@ class Agent:
         self.target_actor.load_checkpoint()
         self.critic.load_checkpoint()
         self.target_critic.load_checkpoint()
-
-
+    
 class CriticNetwork(nn.Module):
     def __init__(self, beta, input_dims, fc1_dims, fc2_dims,
                  n_agents, n_actions, name, chkpt_dir, load_file):
@@ -313,4 +298,3 @@ class ActorNetwork(nn.Module):
 
     def load_checkpoint(self):
         self.load_state_dict(T.load(self.load_file))
-

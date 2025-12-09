@@ -1,0 +1,40 @@
+Carregando topologia da rede...
+
+Analisando número de conexões dos nós:
+========================================
+
+Distribuição dos graus dos nós:
+Nós com 2 conexões: 35
+Nós com 3 conexões: 20
+Nós com 4 conexões: 10
+
+Analisando os nós transmissores atuais:
+========================================
+Nó H8: 3 conexões
+Nó H13: 3 conexões
+Nó H22: 3 conexões
+Nó H31: 3 conexões
+Nó H39: 3 conexões
+Nó H48: 4 conexões
+Nó H57: 2 conexões
+Nó H12: 3 conexões
+Nó H30: 3 conexões
+Nó H21: 3 conexões
+Nó H38: 3 conexões
+Nó H47: 3 conexões
+Nó H56: 4 conexões
+Nó H65: 2 conexões
+
+Média de conexões dos transmissores atuais: 3.00
+
+Nós com menor número de conexões (grau 2):
+['H57', 'H65', 'H2', 'H3', 'H5', 'H6', 'H9', 'H10', 'H11', 'H15', 'H16', 'H18', 'H19', 'H24', 'H25', 'H27', 'H28', 'H32', 'H33', 'H34', 'H35', 'H36', 'H37', 'H41', 'H42', 'H44', 'H45', 'H50', 'H51', 'H53', 'H54', 'H59', 'H60', 'H62', 'H63']
+Total de nós de extremidade: 35
+
+Transmissores atuais que são nós de extremidade: 2 de 14
+['H57', 'H65']
+
+Sugestão de nós transmissores (nós de extremidade):
+['H57', 'H65', 'H2', 'H3', 'H5', 'H6', 'H9', 'H10', 'H11', 'H15', 'H16', 'H18', 'H19', 'H24']
+
+Imagem da topologia gerada em: /workspaces/MADDPGRoutingGNN/service_provider_extremidades.png

@@ -133,7 +133,7 @@ class NetworkEngine:
             self.components[origin].add_link(link)
             self.components[dst].add_link(link)
             self.links[link.get_id()] = link
-        #print("\n edges: ")
+        #print("\n edges: ",graph.edges)
         #print("")
         #for key, values in self.links.items():
         #    print(f"{key}, {values.bw_total}")
@@ -445,7 +445,26 @@ class NetworkEngine:
             return 0
         return len(hostC.neighbors)
     
+    
+    def attack_change_links(self,host,perturbed):
 
+        hostC = self.components.get(host)
+        hostC: NetworkComponent
+
+        #links NetworkEngine
+        #links NetworkComponents
+        
+        links = []
+        #get neighbors
+        for neighbor in hostC.neighbors:
+            links.append(self.get_link(host, neighbor))
+
+        #alterar os links 
+        for index, link in enumerate(links):
+          bw_available = (perturbed[index] / 100) * link.bw_total
+          link.bw_available = bw_available
+        
+    
     def get_state(self, host, n=1):
 
         # 1. NBWs (free bw for each link)
