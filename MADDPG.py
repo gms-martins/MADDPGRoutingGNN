@@ -6,6 +6,7 @@ import numpy as np
 from torch import tensor, cat, no_grad, mean
 import torch.nn.functional as F
 import networkx as nx
+import csv
 
 import shutil
 
@@ -392,6 +393,26 @@ if __name__ == '__main__':
     shortest_count = 0
     other_count = 0
     total_choices = 0
+
+
+    csv_dir = "/workspaces/MADDPGRoutingGNN/test"
+    csv_file_state = f"{csv_dir}/test_states.csv"
+
+    if not os.path.exists(csv_dir):
+        os.makedirs(csv_dir)
+
+    with open(csv_file_state, 'w', newline='') as f:
+        writer = csv.writer(f, delimiter=';')  
+        writer.writerow(['Host', 'Epoch', 'Episode', 'Time_Step', 'State_Original'])
+  
+                              
+    if FGSM_ATTACK:
+        csv_file_state_attack = f"{csv_dir}/test_states_attack.csv"
+
+        with open(csv_file_state_attack, 'w', newline='') as f:
+            writer = csv.writer(f, delimiter=';')
+            writer.writerow(['Host', 'Epoch', 'Episode', 'Time_Step', 'State_Original', 'State_Perturbed'])
+
     for epoch in range(i_epoch, nr_epochs):
         total_epoch_reward = []
         total_epoch_pck_loss = 0
@@ -533,7 +554,7 @@ if __name__ == '__main__':
 
                         state = g_perturbed
 
-                    
+                
 
                 for index, host in enumerate(all_hosts):
                     all_dst_states = eng.get_state(host, 1)
@@ -545,32 +566,16 @@ if __name__ == '__main__':
                         dismiss_indexes.append(index)
                     else:
                         state = all_dst_states
-
+                        
                         n = eng.get_number_neighbors(host)
 
+                        #print("state:", state)
+                        #print("time_steps:", time_steps)
+                        
                         if not FGSM_ATTACK:
-
-                            csv_dir = "/workspaces/MADDPGRoutingGNN/test"
-                            csv_file = f"{csv_dir}/test_states.csv"
-
-                            if not os.path.exists(csv_dir):
-                                    os.makedirs(csv_dir)
-                                
-                            write_header = (epoch == 0 and e == 0 and time_steps == 0)
-                            mode = 'w' if write_header else 'a'
-                                
-                            # Criar ou abrir arquivo CSV
-                            with open(csv_file, mode, newline='') as f:
-                                import csv
+                            with open(csv_file_state, 'a', newline='') as f:
                                 writer = csv.writer(f, delimiter=';')
-                                    
-                                if write_header:
-                                    writer.writerow(['Host', 'Epoch', 'Episode', 'Time_Step', 'State_Original'])
-                                    
-                                # Converter arrays para strings para facilitar leitura
-                                state_str = ', '.join([f'{val:.2f}' for val in state[:n]])
-                                    
-                                # Escrever linha com dados
+                                state_str = ', '.join([f'{val:.2f}' for val in state])
                                 writer.writerow([host, epoch, e, time_steps, state_str])
 
                         #GNN
@@ -597,6 +602,21 @@ if __name__ == '__main__':
                                 #mas para cacluar como o local não consigo usar o critic pois o tamanho do critic state é maior
                                 #posso ir caclucar o ataque a esse estado grande , com isso altero os valores dos links todos 
                                 #e a partir de alterar todos os links apenas faço o normal porque o atque foi a volta .
+
+
+                        #Problemas:
+                            #Quando estamos em treino o estado é constante 
+                            #os bws dos links vizinhos estão sempre a 100
+                            
+                            #existe um problema de conversão dos valores de active comuni
+                            #bws que o host vai enviar 
+                            #como existe uma divisão por 100 , ele arredonda para 0 
+                            #por isso que num estado normal temos 
+
+                            #se eu tentar alterar os valores dos links
+                            #dois ataques seguidos de FGSM leva a a bw do vizinho ir para 0 
+                            #não sei pq isso acontece 
+                            #existe problemas de representação de floats 
 
 
                         if FGSM_ATTACK and not CRITIC_DOMAIN == "central_critic":
@@ -631,7 +651,7 @@ if __name__ == '__main__':
                             
                                 # Apply FGSM formula - perturb only bandwidth values
                                 #variar o epsilon de uma melhor maneira
-                                epsilon = 0.03
+                                epsilon = 0.05
                                 grad_sign = T.sign(grad_state.grad)
                                 #print("grad_sign:", grad_sign[:, :n])
 
@@ -644,48 +664,24 @@ if __name__ == '__main__':
                                     #print("perturbed_bw_1:", perturbed_bw[:, :n])
                                     perturbed_bw[:, :n] = T.clamp(perturbed_bw[:, :n], 0.0, 1.0)
                                     #print("perturbed_bw_2:", perturbed_bw[:, :n])
-                            
-                                #print("state_tensor:", state_tensor)
-                                #print("perturbed_bw:", perturbed_bw)
-                            
+                                                        
                                 perturbed = perturbed_bw.detach().cpu().numpy()[0]
-                                #print("perturbed:", perturbed)
-                                #print("state:", state)
+
+                                #print("state:", state[:n] , " perturbed:", perturbed[:n])
     
                                 #state = perturbed
 
                                 #Alterar os links
-                                #eng.attack_change_links(host,perturbed)
+                                eng.attack_change_links(host,perturbed,state)
 
-                                # NOVO: Salvar estados em CSV
-                                csv_dir = "/workspaces/MADDPGRoutingGNN/test"
-                                csv_file = f"{csv_dir}/test_attack_states.csv"
-
-                                if not os.path.exists(csv_dir):
-                                    os.makedirs(csv_dir)
-                                
-                                write_header = (epoch == 0 and e == 0 and time_steps == 0)
-                                mode = 'w' if write_header else 'a'
-                                
-                                # Criar ou abrir arquivo CSV
-                                with open(csv_file, mode, newline='') as f:
-                                    import csv
+                                with open(csv_file_state_attack,'a', newline='') as f:
                                     writer = csv.writer(f, delimiter=';')
-                                    
-                                    if write_header:
-                                        writer.writerow(['Host', 'Epoch', 'Episode', 'Time_Step', 'State_Original', 'State_Perturbed'])
-                                    
-                                    # Converter arrays para strings para facilitar leitura
                                     state_str = ', '.join([f'{val:.2f}' for val in state[:n]])
                                     perturbed_str = ', '.join([f'{val:.2f}' for val in perturbed[:n]])
-                                    
-                                    # Escrever linha com dados
                                     writer.writerow([host, epoch, e, time_steps, state_str, perturbed_str])
                                 
                                 state = perturbed
                             
-
-                    
                     #caso de não ataque
                     if CRITIC_DOMAIN == "central_critic" and not FGSM_ATTACK:
                         critic_states.append(np.concatenate((eng.get_link_usage(), np.array(all_dsts)), axis=0))

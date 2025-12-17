@@ -446,23 +446,26 @@ class NetworkEngine:
         return len(hostC.neighbors)
     
     
-    def attack_change_links(self,host,perturbed):
+    def attack_change_links(self,host,perturbed,state):
 
         hostC = self.components.get(host)
         hostC: NetworkComponent
 
         #links NetworkEngine
         #links NetworkComponents
-        
+        #print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         links = []
         #get neighbors
         for neighbor in hostC.neighbors:
             links.append(self.get_link(host, neighbor))
 
-        #alterar os links 
-        for index, link in enumerate(links):
-          bw_available = (perturbed[index] / 100) * link.bw_total
-          link.bw_available = bw_available
+        for index, link in enumerate(links):          
+          calc = perturbed[index]  * link.bw_total
+          calc =  int(round(calc))
+          #print("org:", link.src, " dest:" , link.dst, " bw_available:", link.bw_available, " calc:", calc, " real_state:", state[index]," perturbed:", perturbed[index]," bw_total:", link.bw_total)
+          link.bw_available = calc
+          link.bw_used = link.bw_total - calc
+          #print("final:" , link.bw_available)
         
     
     def get_state(self, host, n=1):
@@ -481,8 +484,8 @@ class NetworkEngine:
             links.append(self.get_link(host, neighbor))
 
         
-        state = np.empty((STATE_SIZE), dtype=object)
-        state = np.full((STATE_SIZE), -1)
+        #state = np.empty((STATE_SIZE), dtype=object)
+        state = np.full((STATE_SIZE), -1.0)
 
         # Slocal = (NBWs, D, C, BW_sent)
         # 1. NBWs - NR_MAX_LINKS: bw available for each neighbour node
@@ -496,15 +499,22 @@ class NetworkEngine:
         if not next_dest:
             next_dest = -1
         else:
-            next_dest = int(next_dest[1:]) / 10
+            next_dest = int(next_dest[1:]) / 65
 
         state[NR_MAX_LINKS] = next_dest #save current communication dest
 
         # 3. C - NR_MAX_LINKS + 2: active communications
         active_communication = np.array(hostC.get_active_communications()).flatten() #get active communications
+
+        #print("actv: ", active_communication)
         
         for index, active in enumerate(active_communication):
+            #print("activeee: ", active)
             state[index + NR_MAX_LINKS + 1] = active / 10
+            #print("state_active: ", state[index + NR_MAX_LINKS + 1])
+
+        #print("host: ", host)
+        #print("bws: ", self.bws.get(host, 0)/100)
 
         # 4.BW_sent - 1: bw to send
         state[-1] = self.bws.get(host, 0) / 100  #get bw to send
