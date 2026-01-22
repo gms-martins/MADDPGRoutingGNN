@@ -22,9 +22,8 @@ from MultiAgentReplayBuffer import MultiAgentReplayBuffer
 from NetworkEngine import NetworkEngine
 from NetworkEngine import REMOVED_EDGES, SCENARIO_2_COMPLETED
 from NetworkEnv import NetworkEnv
-from environmental_variables import STATE_SIZE, EPOCH_SIZE, NUMBER_OF_AGENTS, NR_EPOCHS, EVALUATE, CRITIC_DOMAIN, SIM_NR, TRAIN, NEURAL_NETWORK, MODIFIED_NETWORK, NOTES, TOPOLOGY_TYPE, UPDATE_WEIGHTS, PATH_SIMULATION, NUMBER_OF_PATHS, NUMBER_OF_HOSTS,BANDWIDTH_INCREASE_FACTOR,INCREASE_BANDWIDTH_INTERVAL,STABILIZE_BANDWIDTH , STABILIZE_AFTER_MULTIPLIER, SAVE_REMOVED_LINKS_SCENARIO4, MAX_BANDWIDTH_MULTIPLIER, CRITIC_DOMAIN, NUMBER_OF_PATHS, NUMBER_OF_AGENTS, NR_EPOCHS, EPOCH_SIZE, PATH_SIMULATION, SIM_NR, MODIFIED_NETWORK, USE_GNN, NUM_LINKS_TO_REMOVE, FGSM_ATTACK
+from environmental_variables import STATE_SIZE, EPOCH_SIZE, NUMBER_OF_AGENTS, NR_EPOCHS, EVALUATE, CRITIC_DOMAIN, SIM_NR, TRAIN, NEURAL_NETWORK, MODIFIED_NETWORK, NOTES, TOPOLOGY_TYPE, UPDATE_WEIGHTS, PATH_SIMULATION, NUMBER_OF_PATHS, NUMBER_OF_HOSTS,BANDWIDTH_INCREASE_FACTOR,INCREASE_BANDWIDTH_INTERVAL,STABILIZE_BANDWIDTH , STABILIZE_AFTER_MULTIPLIER, SAVE_REMOVED_LINKS_SCENARIO4, MAX_BANDWIDTH_MULTIPLIER, CRITIC_DOMAIN, NUMBER_OF_PATHS, NUMBER_OF_AGENTS, NR_EPOCHS, EPOCH_SIZE, PATH_SIMULATION, SIM_NR, MODIFIED_NETWORK, USE_GNN, NUM_LINKS_TO_REMOVE, FGSM_ATTACK, EPSILON
 #, GRAPH_BATCH_SIZE
-
 
 
 class MADDPG:
@@ -203,9 +202,11 @@ class MADDPG:
 if __name__ == '__main__':    
     eng = NetworkEngine()
     env = NetworkEnv(eng)
-    
+
     n_action = NUMBER_OF_PATHS
     total_rewards = []
+    if FGSM_ATTACK:
+        total_rewards_normal = []
     batch_rewards = []
     agents = eng.get_all_hosts()
     all_hosts = eng.get_all_hosts()
@@ -334,6 +335,8 @@ if __name__ == '__main__':
     if not EVALUATE:
         graph_y_axis = np.zeros(NR_EPOCHS)
         y_axis_training = np.zeros(NR_EPOCHS)
+        if FGSM_ATTACK:
+            y_axis_training2 = np.zeros(NR_EPOCHS)
         graph_x_axis = np.zeros(NR_EPOCHS)
     elif EVALUATE and not TRAIN: # and UPDATE_WEIGHTS:
         graph_x_axis = np.zeros(EPOCH_SIZE)
@@ -415,6 +418,8 @@ if __name__ == '__main__':
 
     for epoch in range(i_epoch, nr_epochs):
         total_epoch_reward = []
+        if FGSM_ATTACK:
+            total_epoch_reward_normal = []
         total_epoch_pck_loss = 0
         total_epoch_pck_sent = 0
 
@@ -440,6 +445,8 @@ if __name__ == '__main__':
             env.reset(new_tm)
 
             total_reward = 0
+            if FGSM_ATTACK:
+                total_reward_normal = 0
             total_package_loss = 0
             total_packets_sent = 0
             if EVALUATE:
@@ -532,7 +539,7 @@ if __name__ == '__main__':
                                 
                         # Apply FGSM formula - perturb only bandwidth values
                         #variar o epsilon de uma melhor maneira
-                        epsilon = 0.05
+                        epsilon = EPSILON
                         g_grad_sign = T.sign(g_grad_state.grad)
                         #print("grad_sign:", grad_sign[:, :n])
 
@@ -554,23 +561,22 @@ if __name__ == '__main__':
 
                         state = g_perturbed
 
-                
+                if FGSM_ATTACK and CRITIC_DOMAIN == "local_critic":
+                    eng.reset_links_attacked()
 
                 for index, host in enumerate(all_hosts):
                     all_dst_states = eng.get_state(host, 1)
                     dst = next_dsts.get(host, '')
                     dst = '' if dst == None else dst
 
+
                     if 'H' not in dst:
                         state = np.zeros((1, agent_dims[index]), dtype=np.double)
                         dismiss_indexes.append(index)
-                    else:
-                        state = all_dst_states
-                        
-                        n = eng.get_number_neighbors(host)
 
-                        #print("state:", state)
-                        #print("time_steps:", time_steps)
+                    else:
+
+                        state = all_dst_states
                         
                         if not FGSM_ATTACK:
                             with open(csv_file_state, 'a', newline='') as f:
@@ -584,47 +590,12 @@ if __name__ == '__main__':
                             #Problema de ser central critic, devo colocar nessa node_feature o estado dele especifico
 
 
-                        #local critic
-                            #ja foi implementado, ele percebe que as ações deles são mas 
-                            #implementar aquilo dos graficos
-                        
-
-                       #central critic 
-                            #estado maior 
-                            #problema 1: mesmo sendo central, ele usa sempre os estados para chegar a ação
-                            #problema 2: sendo central critic o critic utliza um estado maior , logo a forma como calculo o ataque FGSM não da porque eu não consigo 
-
-                            #caso não ataque:
-                                #ele usa o estado normal para ir buscar a ação
-                                #o estado do critic é maior
-                            #caso de ataque:
-                                #se for ataque eu tenho que colocar na mesm o ataque no state
-                                #mas para cacluar como o local não consigo usar o critic pois o tamanho do critic state é maior
-                                #posso ir caclucar o ataque a esse estado grande , com isso altero os valores dos links todos 
-                                #e a partir de alterar todos os links apenas faço o normal porque o atque foi a volta .
-
-
-                        #Problemas:
-                            #Quando estamos em treino o estado é constante 
-                            #os bws dos links vizinhos estão sempre a 100
-                            
-                            #existe um problema de conversão dos valores de active comuni
-                            #bws que o host vai enviar 
-                            #como existe uma divisão por 100 , ele arredonda para 0 
-                            #por isso que num estado normal temos 
-
-                            #se eu tentar alterar os valores dos links
-                            #dois ataques seguidos de FGSM leva a a bw do vizinho ir para 0 
-                            #não sei pq isso acontece 
-                            #existe problemas de representação de floats 
-
-
                         if FGSM_ATTACK and not CRITIC_DOMAIN == "central_critic":
 
-                            #n = eng.get_number_neighbors(host)
+                            n = eng.get_number_neighbors(host)
 
                             if n != 0 : 
-                            
+
                                 # Convert bandwidth states to tensor with gradients 
                                 processing_device = maddpg_agents.agents[index].actor.device
 
@@ -651,7 +622,7 @@ if __name__ == '__main__':
                             
                                 # Apply FGSM formula - perturb only bandwidth values
                                 #variar o epsilon de uma melhor maneira
-                                epsilon = 0.05
+                                epsilon = EPSILON
                                 grad_sign = T.sign(grad_state.grad)
                                 #print("grad_sign:", grad_sign[:, :n])
 
@@ -668,12 +639,21 @@ if __name__ == '__main__':
                                 perturbed = perturbed_bw.detach().cpu().numpy()[0]
 
                                 #print("state:", state[:n] , " perturbed:", perturbed[:n])
+                                #print("host:", host , " perturbed:", perturbed[:n])
     
-                                #state = perturbed
+                                change_attack = []
 
-                                #Alterar os links
-                                eng.attack_change_links(host,perturbed,state)
+                                change_attack = eng.check_link_attack(host,perturbed,n)
 
+                                for i, value in enumerate(change_attack):
+                                    if value != -1: 
+                                        #print(f"Changing ")
+                                        perturbed[i] = value
+
+
+                                #print("host:", host , " perturbed:", perturbed[:n])
+                                #print("-------------------------------------------------")
+                                
                                 with open(csv_file_state_attack,'a', newline='') as f:
                                     writer = csv.writer(f, delimiter=';')
                                     state_str = ', '.join([f'{val:.2f}' for val in state[:n]])
@@ -681,26 +661,26 @@ if __name__ == '__main__':
                                     writer.writerow([host, epoch, e, time_steps, state_str, perturbed_str])
                                 
                                 state = perturbed
-                            
-                    #caso de não ataque
+
+                                
                     if CRITIC_DOMAIN == "central_critic" and not FGSM_ATTACK:
                         critic_states.append(np.concatenate((eng.get_link_usage(), np.array(all_dsts)), axis=0))
                     elif CRITIC_DOMAIN == "local_critic":     
                         critic_states.append(state)
 
                     states.append(state)
-                
+
+                    
                 #caso de ataque devo so colocar os estados depois de os atualizar todos 
                 #if CRITIC_DOMAIN == "central_critic" and FGSM_ATTACK:
                     #for _ in range(len(all_hosts)):
                         #critic_states.append(np.concatenate((eng.get_link_usage(), np.array(all_dsts)), axis=0))
 
-
-                # Escolher ações com dados do grafo quando GNN está habilitada
                 actions = maddpg_agents.choose_action(states, graph_data if USE_GNN else None)
 
                 actions_dict = {}
                 for index, host in enumerate(all_hosts):
+                    #so entra se tiver o proximo destino for diferente de None
                     if next_dsts.get(host, ''):
 
                         # Exploration probability
@@ -733,8 +713,89 @@ if __name__ == '__main__':
 
                         actions_dict[host] = {next_dsts.get(host, ''): action}
 
-                next_states, rewards, done, _ = env.step(actions_dict)
 
+                next_states, rewards, done,_ = env.step(actions_dict,states,dismiss_indexes)
+
+                if FGSM_ATTACK and CRITIC_DOMAIN == "local_critic":
+
+                    rewards_normal = rewards.copy()
+                    
+                    eng.reset_links_attacked()
+                    next_states_list = []
+                    new_next_states_dic = {}
+
+                    for index, host in enumerate(all_hosts):
+                        next_state = next_states[host]
+
+                        n = eng.get_number_neighbors(host)
+
+                        if n != 0 :
+
+                            processing_device = maddpg_agents.agents[index].actor.device
+
+                            next_state_array = np.array([next_state], dtype=np.float32)
+                            next_state_tensor = T.tensor(next_state_array, dtype=T.float).to(processing_device)
+
+                            grad_next_state = T.tensor(next_state_array, requires_grad=True,dtype=T.float).to(processing_device)
+                                        
+                            # Get action from actor
+                            action_tensor = maddpg_agents.agents[index].actor.forward(next_state_tensor)
+                            action = action_tensor.detach().cpu().numpy()[0]
+                            best_action_idx = np.argmax(action) #debug
+
+                            #print("Tensor action:", action_tensor)
+                            #print("Chosen action index:", best_action_idx)
+
+                            # Get Q-value from critic and calculate loss
+                            critic_value = maddpg_agents.agents[index].critic.forward(grad_next_state , action_tensor)
+                            loss = -critic_value
+                            #print("Loss:", loss)
+
+                            # Calculate gradients w.r.t bandwidth states
+                            loss.backward()
+                            
+                            # Apply FGSM formula - perturb only bandwidth values
+                            #variar o epsilon de uma melhor maneira
+                            epsilon = EPSILON
+                            grad_sign = T.sign(grad_next_state.grad)
+                            #print("grad_sign:", grad_sign[:, :n])
+
+                            mask = T.zeros_like(grad_sign)       
+                            mask[:, :n] = 1.0      
+                            perturbation = epsilon * grad_sign * mask         
+
+                            #print("perturbation:", perturbation[:, :n])     
+
+                            with T.no_grad():
+                                perturbed_bw = next_state_tensor + perturbation
+                                #print("perturbation_bw:", perturbation[:, :n]) 
+                                #print("perturbed_bw_1:", perturbed_bw[:, :n])
+                                perturbed_bw[:, :n] = T.clamp(perturbed_bw[:, :n], 0.0, 1.0)
+                                #print("perturbed_bw_2:", perturbed_bw[:, :n])
+                                                        
+                            #print("host", host, "new_state:", next_state[:n] , " perturbed_bw:", perturbed_bw[:n])
+                            perturbed = perturbed_bw.detach().cpu().numpy()[0]
+
+                            #print("host", host, "new_state:", next_state[:n] , " perturbed:", perturbed[:n])
+                            #print("host:", host , " perturbed:", perturbed[:n])
+    
+                            change_attack = []
+
+                            change_attack = eng.check_link_attack(host,perturbed,n)
+
+                            for i, value in enumerate(change_attack):
+                                if value != -1: 
+                                    #print(f"Changing ")
+                                    perturbed[i] = value
+                                    #print("host", host, "new_state:", next_state[:n] , " perturbed:", perturbed[:n])
+
+                            
+                            next_states_list.append(perturbed)
+                            new_next_states_dic[host] = perturbed
+                        
+                    rewards = env.calc_reward_attack(next_states_list)
+
+                    
                 new_next_states = np.empty((NUMBER_OF_AGENTS, agent_dim), dtype=np.double)
 
                 if CRITIC_DOMAIN == "central_critic":
@@ -742,13 +803,19 @@ if __name__ == '__main__':
                                          range(NUMBER_OF_AGENTS)]
                 elif CRITIC_DOMAIN == "local_critic":
                 #    all_critic_new_states = next_states
-                    all_critic_new_states = list(next_states.values())
+                    if not FGSM_ATTACK:
+                        all_critic_new_states = list(next_states.values())
+                    else:
+                        all_critic_new_states = list(new_next_states_dic.values())
                 
                 new_next_states = []
                 for index, host in enumerate(all_hosts):
                     # means it add an action
                     if host in actions_dict and next_dsts[host]:
-                        bw_state = next_states[host]
+                        if not FGSM_ATTACK:
+                            bw_state = next_states[host]
+                        else:
+                            bw_state = new_next_states_dic[host]
                         new_next_states.append(bw_state)
                     else:
                         new_next_states.append(np.zeros((1, agent_dims[index]), dtype=np.double))
@@ -795,17 +862,23 @@ if __name__ == '__main__':
                         
                         # Marcar como concluído
                         increase_bandwidth_flag = False
-                        
+
+                if FGSM_ATTACK:
+                    total_reward_normal += sum(rewards_normal) / NUMBER_OF_AGENTS
+
                 total_reward += sum(rewards) / NUMBER_OF_AGENTS
                 #total_package_loss += eng.statistics['package_loss']
                 #total_packets_sent += eng.statistics['package_sent']
                 if done:
                     break
+            #for de timestamp
             
             available_bw_episode[e] = np.average(available_bw_time_steps)
               ## DATA
             print(f"episode {e}/{episode_size}, epoch {epoch}/{nr_epochs}")
             print("Total reward", total_reward)
+            if FGSM_ATTACK:
+                print("Total reward normal", total_reward_normal)
             #print("Total package loss", ng.statistics['package_loss'])
             #print(" ")
 
@@ -813,6 +886,8 @@ if __name__ == '__main__':
                 maddpg_agents.learn(memory)
             
             total_epoch_reward.append(total_reward)
+            if FGSM_ATTACK:
+                total_epoch_reward_normal.append(total_reward_normal)
             
             total_epoch_pck_loss += eng.statistics['package_loss']
             total_epoch_pck_sent += eng.statistics['package_sent']
@@ -825,11 +900,12 @@ if __name__ == '__main__':
             # print(f"STATISTICS OG {eng.statistics}")
 
             total_rewards.append(total_reward)
+            if FGSM_ATTACK:
+                total_rewards_normal.append(total_reward_normal)
             #batch_rewards.append(total_reward)
 
             if EVALUATE and not TRAIN: #and UPDATE_WEIGHTS:
                 graph_y_axis[epoch][e] = int(total_reward) 
-
                 if eng.statistics['nr_package_sent'] > 0:
                     episode_packet_loss = (eng.statistics['nr_package_loss'] / eng.statistics['nr_package_sent']) * 100
                 else:
@@ -849,7 +925,8 @@ if __name__ == '__main__':
 
             # print(f"{'OG' if epoch % 2 == 0 else 'NEW'} REWARD {total_reward}")
             ### episode ends
-        
+        #for dos episodios
+
         if total_choices > 0:
             print(f"Percentagem de escolhas do caminho curto (índice 0): {100 * shortest_count / total_choices:.2f}%")
             print(f"Percentagem de escolhas de outros caminhos: {100 * other_count / total_choices:.2f}%")
@@ -857,10 +934,15 @@ if __name__ == '__main__':
         # f.write(f"{epoch} {total_epoch_reward}\n")
         if not EVALUATE or (EVALUATE and TRAIN):
             y_axis_training[epoch] = sum(total_epoch_reward) / len(total_epoch_reward) #for saving in the training file
+            if FGSM_ATTACK:
+                y_axis_training2[epoch] = sum(total_epoch_reward_normal) / len(total_epoch_reward_normal)
         
         if epoch % 20 == 0:
             print(f"\n AVERGAE WAS {sum(total_rewards) / len(total_rewards)}")
             total_rewards = []
+            if FGSM_ATTACK:
+                print(f"\n AVERGAE NORMAL WAS {sum(total_rewards_normal) / len(total_rewards_normal)}")
+                total_rewards_normal = []
 
             if not EVALUATE:
                 maddpg_agents.save_checkpoint()
@@ -884,6 +966,12 @@ if __name__ == '__main__':
             })
             training_data.to_csv(f"{folder_path}/data_while_training.csv", index=False, sep=';', decimal='.')
 
+            if FGSM_ATTACK:
+                training_data_normal = pd.DataFrame({
+                    'Epoch': np.arange(0, NR_EPOCHS),
+                    'Average_Reward': [f"{value:.3f}" for value in y_axis_training2],
+                })
+                training_data_normal.to_csv(f"{folder_path}/data_while_training_normal.csv", index=False, sep=';', decimal='.')
 
         #print(total_epoch_pck_loss)
 
@@ -895,7 +983,8 @@ if __name__ == '__main__':
             percentage_2[epoch] = round(((total_package_loss_nr/(total_package_loss_nr+total_packets_sent_nr))*100),2)
             available_bw_epoch[epoch] = round(np.average(available_bw_episode),2)
         ### epoch ends
-
+    #for epoch
+    
     ##Data text file
     data_file = open(f"{folder_path}/{sub_path}.txt", "w")
     if EVALUATE and not TRAIN:
@@ -2360,14 +2449,14 @@ if __name__ == '__main__':
         x = np.arange(0, NR_EPOCHS)
         
         if CRITIC_DOMAIN == "central_critic":
-            plt.title(f"Total reward per epoch - central critic")
+            plt.title(f"Total reward per epoch - central critic - EPSILON={EPSILON}")
         elif CRITIC_DOMAIN == "local_critic":
-            plt.title(f"Total reward per epoch - local critic")
+            plt.title(f"Total reward per epoch - local critic - EPSILON={EPSILON}")
         
         plt.xlabel("Epochs")
         plt.ylabel("Reward")
 
-        plt.plot(x, y_axis_training, label = {NEURAL_NETWORK})
+        plt.plot(x, y_axis_training, label = {NEURAL_NETWORK},color='blue', linestyle='-', linewidth=2, marker='o', markersize=4)
         plt.legend()
         plt.savefig(f"{folder_path}/{sub_path}.png")
 
@@ -2377,6 +2466,49 @@ if __name__ == '__main__':
         })
         data_total_df.to_csv(f"{folder_path}/data_total.csv", index=False,sep=';', decimal='.')
         plt.close()
+
+        if FGSM_ATTACK:
+            plt.figure()  
+            
+            if CRITIC_DOMAIN == "central_critic":
+                plt.title(f"Total reward per epoch (Normal) - central critic - EPSILON={EPSILON}")
+            elif CRITIC_DOMAIN == "local_critic":
+                plt.title(f"Total reward per epoch (Normal) - local critic - EPSILON={EPSILON}")
+            
+            plt.xlabel("Epochs")
+            plt.ylabel("Reward")
+            
+            plt.plot(x, y_axis_training2, label = f"{NEURAL_NETWORK} (Normal)", color='blue', linestyle='-', linewidth=2, marker='o', markersize=4)
+            plt.legend()
+            plt.savefig(f"{folder_path}/{sub_path}_normal.png")
+            
+            data_total_df_normal2 = pd.DataFrame({
+                'Epoch': x,
+                'Average_Reward': [f"{value:.3f}" for value in y_axis_training2]
+            })
+            data_total_df_normal2.to_csv(f"{folder_path}/data_total_normal.csv", index=False, sep=';', decimal='.')
+            plt.close()
+
+            plt.figure(figsize=(14, 8))
+                
+            if CRITIC_DOMAIN == "central_critic":
+                plt.title(f"Comparação: Rewards com Ataque vs Sem Ataque - central critic - EPSILON={EPSILON}")
+            elif CRITIC_DOMAIN == "local_critic":
+                plt.title(f"Comparação: Rewards com Ataque vs Sem Ataque - local critic - EPSILON={EPSILON}")
+                
+            plt.xlabel("Epochs")
+            plt.ylabel("Reward")
+                
+            plt.plot(x, y_axis_training, label=f"{NEURAL_NETWORK} (Com Ataque FGSM)", 
+                        color='red', linestyle='-', linewidth=2, marker='o', markersize=4)
+            plt.plot(x, y_axis_training2, label=f"{NEURAL_NETWORK} (Normal)", 
+                        color='blue', linestyle='--', linewidth=2, marker='s', markersize=4)
+                
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(f"{folder_path}/{sub_path}_comparison.png")
+            plt.close()
 
         visualize_link_utilization(link_utilization_history, folder_path, all_epochs=True)
         

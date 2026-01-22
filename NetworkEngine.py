@@ -17,7 +17,7 @@ import csv
 
 from Link import Link
 from NetworkComponent import NetworkComponent
-from environmental_variables import EPOCH_SIZE, STATE_SIZE, NR_MAX_LINKS, EVALUATE,UPDATE_WEIGHTS, MODIFIED_NETWORK, NUMBER_OF_PATHS, TOPOLOGY_TYPE, TRAIN , PATH_SIMULATION, MAX_BANDWIDTH_MULTIPLIER,BANDWIDTH_INCREASE_FACTOR,SAVE_REMOVED_LINKS_SCENARIO4, STABILIZE_BANDWIDTH, STABILIZE_AFTER_MULTIPLIER, INCREASE_BANDWIDTH_INTERVAL, NR_ACTIVE_CONNECTIONS, CRITIC_DOMAIN, NEURAL_NETWORK, USE_GNN , NUM_LINKS_TO_REMOVE
+from environmental_variables import EPOCH_SIZE, STATE_SIZE, NR_MAX_LINKS, EVALUATE,UPDATE_WEIGHTS, MODIFIED_NETWORK, NUMBER_OF_PATHS, TOPOLOGY_TYPE, TRAIN , PATH_SIMULATION, MAX_BANDWIDTH_MULTIPLIER,BANDWIDTH_INCREASE_FACTOR,SAVE_REMOVED_LINKS_SCENARIO4, STABILIZE_BANDWIDTH, STABILIZE_AFTER_MULTIPLIER, INCREASE_BANDWIDTH_INTERVAL, NR_ACTIVE_CONNECTIONS, CRITIC_DOMAIN, NEURAL_NETWORK, USE_GNN , NUM_LINKS_TO_REMOVE , FGSM_ATTACK
 
 REMOVED_EDGES = {1: None, 2: None, 3: None}  
 SCENARIO_2_COMPLETED = False  
@@ -26,6 +26,9 @@ class NetworkEngine:
 
     def __init__(self):
         self.graph_has_data = False
+
+        if FGSM_ATTACK:
+            self.links_attacked = {}
         
         # Choose the topology
         if TOPOLOGY_TYPE == "service_provider":
@@ -111,6 +114,9 @@ class NetworkEngine:
         self.simulate_communication("H2", "H7", 0, 20)
         self.get_state("H1", 2)
         """
+
+    def reset_links_attacked(self):
+        self.links_attacked.clear()
 
     def create_components(self, graph: nx.Graph):
 
@@ -258,6 +264,7 @@ class NetworkEngine:
         for host in hosts:
             h = self.components[host]
 
+            # = 0 não esta busy
             if not h.is_busy():
                 dst = h.get_dst()
 
@@ -327,8 +334,10 @@ class NetworkEngine:
                 # Update or remove active communication
                 if bw > 0:
                     src.add_active_communication(origin, destiny)
+                    #print("ADD src:",src.id, " active_communications:",src.active_communications)
                 else:
                     src.remove_active_communication(origin, destiny)
+                    #print("REMOV src:",src.id, " active_communications:",src.active_communications)
             else:
                 if bw > 0:
                     src.active_dst = destiny
@@ -348,6 +357,7 @@ class NetworkEngine:
                 link.add_active_communication(origin, destiny, bw)
 
             if link.bw_available < 0 and not update_bw: 
+
                 absolute_loss = -1 * link.bw_available
 
                 if link.bw_total > 0:
@@ -361,7 +371,7 @@ class NetworkEngine:
                 bw = max(1, bw)
 
         if not update_bw:
-            
+
             total_capacity = sum(link.bw_total for link in self.links.values())
 
             if total_capacity > 0:
@@ -444,8 +454,35 @@ class NetworkEngine:
         if hostC is None:
             return 0
         return len(hostC.neighbors)
+
+
+    def check_link_attack(self,host,perturbed,n):
+        hostC = self.components.get(host)
+        hostC: NetworkComponent
+
+        change_attack = [-1] * n
+
+        links = []
+        for neighbor in hostC.neighbors:
+            links.append(self.get_link(host, neighbor))
+
+        
+        for index in range(n):
+            link = links[index]
+
+            link_id = link.get_id()
+
+            if link_id in self.links_attacked:
+                change_attack[index] = self.links_attacked[link_id]
+                #print("Link already attacked:", link_id, " with perturbed value:", self.links_attacked[link_id])
+
+            else:
+                self.links_attacked[link_id] = perturbed[index]
+                #print("Registering attack on link:", link_id, " with perturbed value:", perturbed[index])
+
+        return change_attack
     
-    
+
     def attack_change_links(self,host,perturbed,state):
 
         hostC = self.components.get(host)
@@ -453,7 +490,7 @@ class NetworkEngine:
 
         #links NetworkEngine
         #links NetworkComponents
-        #print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         links = []
         #get neighbors
         for neighbor in hostC.neighbors:
@@ -462,10 +499,10 @@ class NetworkEngine:
         for index, link in enumerate(links):          
           calc = perturbed[index]  * link.bw_total
           calc =  int(round(calc))
-          #print("org:", link.src, " dest:" , link.dst, " bw_available:", link.bw_available, " calc:", calc, " real_state:", state[index]," perturbed:", perturbed[index]," bw_total:", link.bw_total)
+          print("org:", link.src, " dest:" , link.dst, " bw_available:", link.bw_available, " calc:", calc, " real_state:", state[index]," perturbed:", perturbed[index]," bw_total:", link.bw_total)
           link.bw_available = calc
           link.bw_used = link.bw_total - calc
-          #print("final:" , link.bw_available)
+          print("final:" , link.bw_available)
         
     
     def get_state(self, host, n=1):
@@ -492,7 +529,9 @@ class NetworkEngine:
         link: Link
         #get available bw for the neighbours
         for index, link in enumerate(links):
+            #print("link:", link.src, "->", link.dst, " bw_available:", link.bw_available, " total:", link.bw_total, " pct:", link.get_bw_available_percentage() / 100)
             state[index] = link.get_bw_available_percentage() / 100
+        #print("state_nbws: ", state)
 
         # 2. D - NR_MAX_LINKS + 1: next destination
         next_dest = hostC.get_next_dst()
