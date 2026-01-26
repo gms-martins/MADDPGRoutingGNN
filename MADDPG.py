@@ -398,7 +398,7 @@ if __name__ == '__main__':
     total_choices = 0
 
 
-    csv_dir = "/workspaces/MADDPGRoutingGNN/test"
+    csv_dir = f"{PATH_SIMULATION}/test"
     csv_file_state = f"{csv_dir}/test_states.csv"
 
     if not os.path.exists(csv_dir):
@@ -578,11 +578,11 @@ if __name__ == '__main__':
 
                         state = all_dst_states
                         
-                        if not FGSM_ATTACK:
-                            with open(csv_file_state, 'a', newline='') as f:
-                                writer = csv.writer(f, delimiter=';')
-                                state_str = ', '.join([f'{val:.2f}' for val in state])
-                                writer.writerow([host, epoch, e, time_steps, state_str])
+                        #if not FGSM_ATTACK:
+                            #with open(csv_file_state, 'a', newline='') as f:
+                                #writer = csv.writer(f, delimiter=';')
+                                #state_str = ', '.join([f'{val:.2f}' for val in state])
+                                #writer.writerow([host, epoch, e, time_steps, state_str])
 
                         #GNN
                             #na forma como esta feito ele faz a media depois de tudo
@@ -654,11 +654,11 @@ if __name__ == '__main__':
                                 #print("host:", host , " perturbed:", perturbed[:n])
                                 #print("-------------------------------------------------")
                                 
-                                with open(csv_file_state_attack,'a', newline='') as f:
-                                    writer = csv.writer(f, delimiter=';')
-                                    state_str = ', '.join([f'{val:.2f}' for val in state[:n]])
-                                    perturbed_str = ', '.join([f'{val:.2f}' for val in perturbed[:n]])
-                                    writer.writerow([host, epoch, e, time_steps, state_str, perturbed_str])
+                                #with open(csv_file_state_attack,'a', newline='') as f:
+                                    #writer = csv.writer(f, delimiter=';')
+                                    #state_str = ', '.join([f'{val:.2f}' for val in state[:n]])
+                                    #perturbed_str = ', '.join([f'{val:.2f}' for val in perturbed[:n]])
+                                    #writer.writerow([host, epoch, e, time_steps, state_str, perturbed_str])
                                 
                                 state = perturbed
 
@@ -2456,7 +2456,7 @@ if __name__ == '__main__':
         plt.xlabel("Epochs")
         plt.ylabel("Reward")
 
-        plt.plot(x, y_axis_training, label = {NEURAL_NETWORK},color='blue', linestyle='-', linewidth=2, marker='o', markersize=4)
+        plt.plot(x, y_axis_training, label = {NEURAL_NETWORK},color='blue', linestyle='-', linewidth=2, markersize=4)
         plt.legend()
         plt.savefig(f"{folder_path}/{sub_path}.png")
 
@@ -2478,7 +2478,7 @@ if __name__ == '__main__':
             plt.xlabel("Epochs")
             plt.ylabel("Reward")
             
-            plt.plot(x, y_axis_training2, label = f"{NEURAL_NETWORK} (Normal)", color='blue', linestyle='-', linewidth=2, marker='o', markersize=4)
+            plt.plot(x, y_axis_training2, label = f"{NEURAL_NETWORK} (Normal)", color='blue', linestyle='-', linewidth=2, markersize=4)
             plt.legend()
             plt.savefig(f"{folder_path}/{sub_path}_normal.png")
             
@@ -2500,9 +2500,9 @@ if __name__ == '__main__':
             plt.ylabel("Reward")
                 
             plt.plot(x, y_axis_training, label=f"{NEURAL_NETWORK} (Com Ataque FGSM)", 
-                        color='red', linestyle='-', linewidth=2, marker='o', markersize=4)
+                        color='red', linestyle='-', linewidth=2, markersize=4)
             plt.plot(x, y_axis_training2, label=f"{NEURAL_NETWORK} (Normal)", 
-                        color='blue', linestyle='--', linewidth=2, marker='s', markersize=4)
+                        color='blue', linestyle='--', linewidth=2, markersize=4)
                 
             plt.legend()
             plt.grid(True, alpha=0.3)

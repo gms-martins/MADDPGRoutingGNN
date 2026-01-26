@@ -2,12 +2,12 @@
 NR_ACTIVE_CONNECTIONS = 10
 NUMBER_OF_PATHS = 3
 
-NR_EPOCHS = 6
-EPOCH_SIZE = 20
+NR_EPOCHS = 4
+EPOCH_SIZE = 5
 
 NOTES = ""
 PATH_SIMULATION = "/workspaces/MADDPGRoutingGNN"
-SIM_NR = "20251204_110808_local_critic_duelling_q_network"
+SIM_NR = "20260126_033605_local_critic_duelling_q_network"
 
 INCREASE_BANDWIDTH_INTERVAL = 1
 BANDWIDTH_INCREASE_FACTOR = 2
@@ -33,6 +33,5 @@ NUM_LINKS_TO_REMOVE = 0
 # Controla se a GNN é usada ou não
 USE_GNN = False
 
-#Flag attack
 FGSM_ATTACK =  True
 EPSILON = 0.05
