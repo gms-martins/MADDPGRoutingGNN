@@ -1006,7 +1006,7 @@ class NetworkEngine:
         self.calculate_paths()
 
          
-        self.bws = {key: value + 160 for key, value in self.bws.items()}
+        self.bws = {key: value + 100 for key, value in self.bws.items()}
 
         #print("\n hosts: ", self.hosts)
         self.number_of_hosts = len(self.hosts)

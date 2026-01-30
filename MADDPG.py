@@ -603,11 +603,14 @@ if __name__ == '__main__':
                                 state_tensor = T.tensor(state_array, dtype=T.float).to(processing_device)
 
                                 grad_state = T.tensor(state_array, requires_grad=True,dtype=T.float).to(processing_device)
-                                        
+
+                                grad_state.retain_grad()
+
                                 # Get action from actor
-                                action_tensor = maddpg_agents.agents[index].actor.forward(state_tensor)
-                                action = action_tensor.detach().cpu().numpy()[0]
-                                best_action_idx = np.argmax(action) #debug
+                                with T.no_grad(): 
+                                    action_tensor = maddpg_agents.agents[index].actor.forward(grad_state)
+                                    action = action_tensor.detach().cpu().numpy()[0]
+                                #best_action_idx = np.argmax(action) #debug
 
                                 #print("Tensor action:", action_tensor)
                                 #print("Chosen action index:", best_action_idx)
@@ -737,11 +740,14 @@ if __name__ == '__main__':
                             next_state_tensor = T.tensor(next_state_array, dtype=T.float).to(processing_device)
 
                             grad_next_state = T.tensor(next_state_array, requires_grad=True,dtype=T.float).to(processing_device)
-                                        
+
+                            grad_next_state.retain_grad()
+
                             # Get action from actor
-                            action_tensor = maddpg_agents.agents[index].actor.forward(next_state_tensor)
-                            action = action_tensor.detach().cpu().numpy()[0]
-                            best_action_idx = np.argmax(action) #debug
+                            with T.no_grad(): 
+                                action_tensor = maddpg_agents.agents[index].actor.forward(grad_next_state)
+                                action = action_tensor.detach().cpu().numpy()[0]
+                            #best_action_idx = np.argmax(action) #debug
 
                             #print("Tensor action:", action_tensor)
                             #print("Chosen action index:", best_action_idx)
