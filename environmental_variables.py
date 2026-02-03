@@ -33,5 +33,5 @@ NUM_LINKS_TO_REMOVE = 0
 # Controla se a GNN é usada ou não
 USE_GNN = False
 
-FGSM_ATTACK =  True
+FGSM_ATTACK = False
 EPSILON = 0.05

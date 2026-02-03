@@ -2468,16 +2468,24 @@ if __name__ == '__main__':
     if not EVALUATE:
         x = np.arange(0, NR_EPOCHS)
         
-        if CRITIC_DOMAIN == "central_critic":
-            plt.title(f"Total reward per epoch - central critic - EPSILON={EPSILON}")
-        elif CRITIC_DOMAIN == "local_critic":
-            plt.title(f"Total reward per epoch - local critic - EPSILON={EPSILON}")
+        if FGSM_ATTACK:
+            if CRITIC_DOMAIN == "central_critic":
+                plt.title(f"Total reward per epoch - central critic - EPSILON={EPSILON}")
+            elif CRITIC_DOMAIN == "local_critic":
+                plt.title(f"Total reward per epoch - local critic - EPSILON={EPSILON}")
+        else:
+            if CRITIC_DOMAIN == "central_critic":
+                plt.title(f"Total reward per epoch - central critic")
+            elif CRITIC_DOMAIN == "local_critic":
+                plt.title(f"Total reward per epoch - local critic")
+
         
         plt.xlabel("Epochs")
         plt.ylabel("Reward")
 
-        plt.plot(x, y_axis_training, label = {NEURAL_NETWORK},color='blue', linestyle='-', linewidth=2, markersize=4)
+        plt.plot(x, y_axis_training, label = {NEURAL_NETWORK},color='blue', linestyle='-', linewidth=1)
         plt.legend()
+        plt.grid(True, alpha=0.3)
         plt.savefig(f"{folder_path}/{sub_path}.png")
 
         data_total_df = pd.DataFrame({
@@ -2498,8 +2506,9 @@ if __name__ == '__main__':
             plt.xlabel("Epochs")
             plt.ylabel("Reward")
             
-            plt.plot(x, y_axis_training2, label = f"{NEURAL_NETWORK} (Normal)", color='blue', linestyle='-', linewidth=2, markersize=4)
+            plt.plot(x, y_axis_training2, label = f"{NEURAL_NETWORK} (Normal)", color='blue', linestyle='-', linewidth=1)
             plt.legend()
+            plt.grid(True, alpha=0.3)
             plt.savefig(f"{folder_path}/{sub_path}_normal.png")
             
             data_total_df_normal2 = pd.DataFrame({
@@ -2520,9 +2529,9 @@ if __name__ == '__main__':
             plt.ylabel("Reward")
                 
             plt.plot(x, y_axis_training, label=f"{NEURAL_NETWORK} (Com Ataque FGSM)", 
-                        color='red', linestyle='-', linewidth=2, markersize=4)
+                        color='red', linestyle='-', linewidth=1)
             plt.plot(x, y_axis_training2, label=f"{NEURAL_NETWORK} (Normal)", 
-                        color='blue', linestyle='--', linewidth=2, markersize=4)
+                        color='blue', linestyle='--', linewidth=1)
                 
             plt.legend()
             plt.grid(True, alpha=0.3)
