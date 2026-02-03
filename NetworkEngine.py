@@ -1004,6 +1004,8 @@ class NetworkEngine:
         self.bws = {'H8': 42, 'H13': 29, 'H22': 40, 'H31': 28, 'H39': 35, 'H48': 28, 'H57': 55, 'H12': 35, 'H21': 22, 'H30': 52, 'H38': 24, 'H47': 44, 'H56': 53, 'H65': 60, 'H1': 42, 'H2': 21, 'H3': 75, 'H4': 60, 'H5': 39, 'H6': 23, 'H7': 80, 'H9': 32, 'H10': 53, 'H14': 75, 'H11': 51, 'H20': 63, 'H15': 23, 'H16': 61, 'H17': 78, 'H18': 53, 'H19': 73, 'H23': 28, 'H24': 44, 'H25': 69, 'H26': 26, 'H27': 61, 'H28': 52, 'H29': 29, 'H32': 47, 'H33': 67, 'H34': 25, 'H35': 66, 'H36': 77, 'H37': 39, 'H40': 73, 'H41': 73, 'H42': 21, 'H43': 39, 'H44': 42, 'H45': 41, 'H46': 49, 'H49': 75, 'H50': 55, 'H51': 66, 'H52': 46, 'H53': 24, 'H54': 34, 'H55': 53, 'H58': 50, 'H59': 27, 'H60': 59, 'H61': 69, 'H62': 69, 'H63': 46, 'H64': 53}
         self.calculate_paths()
 
+        self.bws = {key: value + 100 for key, value in self.bws.items()}
+
         #print("\n hosts: ", self.hosts)
         self.number_of_hosts = len(self.hosts)
         self.statistics = {'package_loss': 0, 'package_sent': 0, 'nr_package_loss': 0, 'nr_package_sent': 0}

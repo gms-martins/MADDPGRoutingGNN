@@ -398,7 +398,7 @@ if __name__ == '__main__':
     total_choices = 0
 
 
-    csv_dir = "/workspaces/MADDPGRoutingGNN/test"
+    csv_dir = f"{PATH_SIMULATION}/test"
     csv_file_state = f"{csv_dir}/test_states.csv"
 
     if not os.path.exists(csv_dir):
@@ -590,7 +590,7 @@ if __name__ == '__main__':
                             #Problema de ser central critic, devo colocar nessa node_feature o estado dele especifico
 
 
-                        if FGSM_ATTACK and not CRITIC_DOMAIN == "central_critic":
+                        if FGSM_ATTACK and CRITIC_DOMAIN == "local_critic":
 
                             n = eng.get_number_neighbors(host)
 
@@ -603,11 +603,14 @@ if __name__ == '__main__':
                                 state_tensor = T.tensor(state_array, dtype=T.float).to(processing_device)
 
                                 grad_state = T.tensor(state_array, requires_grad=True,dtype=T.float).to(processing_device)
-                                        
+
+                                grad_state.retain_grad()
+
                                 # Get action from actor
-                                action_tensor = maddpg_agents.agents[index].actor.forward(state_tensor)
-                                action = action_tensor.detach().cpu().numpy()[0]
-                                best_action_idx = np.argmax(action) #debug
+                                with T.no_grad(): 
+                                    action_tensor = maddpg_agents.agents[index].actor.forward(grad_state)
+                                    #action = action_tensor.detach().cpu().numpy()[0]
+
 
                                 #print("Tensor action:", action_tensor)
                                 #print("Chosen action index:", best_action_idx)
@@ -737,11 +740,13 @@ if __name__ == '__main__':
                             next_state_tensor = T.tensor(next_state_array, dtype=T.float).to(processing_device)
 
                             grad_next_state = T.tensor(next_state_array, requires_grad=True,dtype=T.float).to(processing_device)
-                                        
+
+                            grad_next_state.retain_grad()
+
                             # Get action from actor
-                            action_tensor = maddpg_agents.agents[index].actor.forward(next_state_tensor)
-                            action = action_tensor.detach().cpu().numpy()[0]
-                            best_action_idx = np.argmax(action) #debug
+                            with T.no_grad(): 
+                                action_tensor = maddpg_agents.agents[index].actor.forward(grad_next_state)
+                                action = action_tensor.detach().cpu().numpy()[0]
 
                             #print("Tensor action:", action_tensor)
                             #print("Chosen action index:", best_action_idx)
