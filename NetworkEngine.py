@@ -39,7 +39,8 @@ class NetworkEngine:
             return
 
         #self.graph_topology = pickle.load(open("c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates/TopologyFiles/small_network.pickle", 'rb'))
-        self.graph_topology=pickle.load(open(f"{PATH_SIMULATION}/TopologyFiles/small_network.pickle", 'rb'))
+        #self.graph_topology=pickle.load(open(f"{PATH_SIMULATION}/TopologyFiles/small_network.pickle", 'rb'))
+        self.graph_topology = pickle.load(open(f"{PATH_SIMULATION}/TopologyFiles/service_provider_network.pickle", "rb"))
         self.links = {}
         self.hosts = {}
         self.switchs = {}
@@ -78,13 +79,16 @@ class NetworkEngine:
 
         self.create_components(self.graph_topology)
 
-        self.bws = {'H1': 29, 'H2': 28, 'H3': 22, 'H4': 28, 'H5': 33, 'H6': 40, 'H7': 34, 'H8': 29, 'H9': 42, 'H10': 21,
-                    'H11': 24, 'H12': 42, 'H13': 34, 'H14': 31, 'H15': 22, 'H16': 26, 'H17': 48, 'H18': 49, 'H19': 50,
-                    'H20': 36, 'H21': 34, 'H22': 36, 'H23': 33, 'H24': 24, 'H25': 46, 'H26': 38, 'H27': 38, 'H28': 45,
-                    'H29': 21, 'H30': 24, 'H31': 32, 'H32': 50, 'H33': 31, 'H34': 32, 'H35': 49, 'H36': 31, 'H37': 34,
-                    'H38': 47, 'H39': 49, 'H40': 29, 'H41': 26, 'H42': 37, 'H43': 28, 'H44': 34, 'H45': 34, 'H46': 43,
-                    'H47': 41, 'H48': 24, 'H49': 30, 'H50': 33}
+        #self.bws = {'H1': 29, 'H2': 28, 'H3': 22, 'H4': 28, 'H5': 33, 'H6': 40, 'H7': 34, 'H8': 29, 'H9': 42, 'H10': 21,
+                    #'H11': 24, 'H12': 42, 'H13': 34, 'H14': 31, 'H15': 22, 'H16': 26, 'H17': 48, 'H18': 49, 'H19': 50,
+                    #'H20': 36, 'H21': 34, 'H22': 36, 'H23': 33, 'H24': 24, 'H25': 46, 'H26': 38, 'H27': 38, 'H28': 45,
+                    #'H29': 21, 'H30': 24, 'H31': 32, 'H32': 50, 'H33': 31, 'H34': 32, 'H35': 49, 'H36': 31, 'H37': 34,
+                    #'H38': 47, 'H39': 49, 'H40': 29, 'H41': 26, 'H42': 37, 'H43': 28, 'H44': 34, 'H45': 34, 'H46': 43,
+                    #'H47': 41, 'H48': 24, 'H49': 30, 'H50': 33}
+        
+        self.bws = {'H8': 42, 'H13': 29, 'H22': 40, 'H31': 28, 'H39': 35, 'H48': 28, 'H57': 55, 'H12': 35, 'H21': 22, 'H30': 52, 'H38': 24, 'H47': 44, 'H56': 53, 'H65': 60, 'H1': 42, 'H2': 21, 'H3': 75, 'H4': 60, 'H5': 39, 'H6': 23, 'H7': 80, 'H9': 32, 'H10': 53, 'H14': 75, 'H11': 51, 'H20': 63, 'H15': 23, 'H16': 61, 'H17': 78, 'H18': 53, 'H19': 73, 'H23': 28, 'H24': 44, 'H25': 69, 'H26': 26, 'H27': 61, 'H28': 52, 'H29': 29, 'H32': 47, 'H33': 67, 'H34': 25, 'H35': 66, 'H36': 77, 'H37': 39, 'H40': 73, 'H41': 73, 'H42': 21, 'H43': 39, 'H44': 42, 'H45': 41, 'H46': 49, 'H49': 75, 'H50': 55, 'H51': 66, 'H52': 46, 'H53': 24, 'H54': 34, 'H55': 53, 'H58': 50, 'H59': 27, 'H60': 59, 'H61': 69, 'H62': 69, 'H63': 46, 'H64': 53}
 
+        self.bws = {key: value + 50 for key, value in self.bws.items()}
        
         self.calculate_paths()
         self.hosts = self.get_all_hosts()
@@ -101,7 +105,8 @@ class NetworkEngine:
 
         #self.all_tms = json.load(open("all_tms_test.json", mode="r"))
         #self.all_tms = json.load(open("c:/Users/Utilizador/Ambiente de Trabalho/Tese/RRC_DRL_Update/RRC_DRL_Updates/TrafficMatrix/tms_internet_train.json", mode="r"))
-        self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_internet_train.json", mode="r"))
+        #self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_internet_train.json", mode="r"))
+        self.all_tms = json.load(open(f"{PATH_SIMULATION}/TrafficMatrix/tms_service_provider_test.json", mode="r"))
         self.current_index = 0
         self.current_tm_index = self.current_index % len(self.all_tms)          #EPOCH_SIZE
         #print("\n current rm index: ", self.current_tm_index)
@@ -1006,7 +1011,7 @@ class NetworkEngine:
         self.calculate_paths()
 
          
-        self.bws = {key: value + 160 for key, value in self.bws.items()}
+        self.bws = {key: value + 100 for key, value in self.bws.items()}
 
         #print("\n hosts: ", self.hosts)
         self.number_of_hosts = len(self.hosts)

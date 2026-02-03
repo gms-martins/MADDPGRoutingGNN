@@ -416,6 +416,15 @@ if __name__ == '__main__':
             writer = csv.writer(f, delimiter=';')
             writer.writerow(['Host', 'Epoch', 'Episode', 'Time_Step', 'State_Original', 'State_Perturbed'])
 
+        if CRITIC_DOMAIN == "central_critic":
+            csv_file_central_critic_attack = f"{csv_dir}/test_central_critic_attack.csv"
+
+            with open(csv_file_central_critic_attack, 'w', newline='') as f:
+                writer = csv.writer(f, delimiter=';')
+                writer.writerow(['Epoch', 'Episode','Time_Step','Index','State'])
+
+        
+
     for epoch in range(i_epoch, nr_epochs):
         total_epoch_reward = []
         if FGSM_ATTACK:
@@ -509,12 +518,19 @@ if __name__ == '__main__':
                     #print("graph_data:",graph_data)
 
                 
-                if FGSM_ATTACK and CRITIC_DOMAIN == "central_critic":
-                    for index, host in enumerate(all_hosts):
-                        #saber o numero de links
-                        n = len(eng.links)
 
-                        processing_device = maddpg_agents.agents[index].actor.device
+                #Implementação do ataque no Central 100%, algumas duvidas 
+                #Tenho que treinar no serivdor o caso normal sem ataque pois o bws foram alterados
+                #Ja tenho resultdados para comparar , tenho de ter mais vezes
+
+
+                if FGSM_ATTACK and CRITIC_DOMAIN == "central_critic":
+
+                    n = len(eng.links)
+                    
+                    for index, host in enumerate(all_hosts):
+                        
+                        processing_device = maddpg_agents.agents[0].actor.device
 
                         g_state = np.concatenate((eng.get_link_usage(), np.array(all_dsts)), axis=0)
                         g_state_array = np.array([g_state], dtype=np.float32)
@@ -559,7 +575,11 @@ if __name__ == '__main__':
                         g_perturbed = g_perturbed_bw.detach().cpu().numpy()[0]
                         #print("perturbed:", perturbed)
 
-                        state = g_perturbed
+                        with open(csv_file_central_critic_attack,'a', newline='') as f:
+                            writer = csv.writer(f, delimiter=';')
+                            state_str = ', '.join([f'{val:.2f}' for val in g_perturbed[:n]])
+                            writer.writerow([epoch, e, time_steps, index, state_str])
+
 
                 if FGSM_ATTACK and CRITIC_DOMAIN == "local_critic":
                     eng.reset_links_attacked()
@@ -590,7 +610,7 @@ if __name__ == '__main__':
                             #Problema de ser central critic, devo colocar nessa node_feature o estado dele especifico
 
 
-                        if FGSM_ATTACK and not CRITIC_DOMAIN == "central_critic":
+                        if FGSM_ATTACK and CRITIC_DOMAIN == "local_critic":
 
                             n = eng.get_number_neighbors(host)
 
@@ -605,9 +625,9 @@ if __name__ == '__main__':
                                 grad_state = T.tensor(state_array, requires_grad=True,dtype=T.float).to(processing_device)
                                         
                                 # Get action from actor
-                                action_tensor = maddpg_agents.agents[index].actor.forward(state_tensor)
-                                action = action_tensor.detach().cpu().numpy()[0]
-                                best_action_idx = np.argmax(action) #debug
+                                action_tensor = maddpg_agents.agents[index].actor.forward(grad_state)
+                                #action = action_tensor.detach().cpu().numpy()[0]
+                                #best_action_idx = np.argmax(action) #debug
 
                                 #print("Tensor action:", action_tensor)
                                 #print("Chosen action index:", best_action_idx)
@@ -740,8 +760,8 @@ if __name__ == '__main__':
                                         
                             # Get action from actor
                             action_tensor = maddpg_agents.agents[index].actor.forward(next_state_tensor)
-                            action = action_tensor.detach().cpu().numpy()[0]
-                            best_action_idx = np.argmax(action) #debug
+                            #action = action_tensor.detach().cpu().numpy()[0]
+                            #best_action_idx = np.argmax(action) #debug
 
                             #print("Tensor action:", action_tensor)
                             #print("Chosen action index:", best_action_idx)
